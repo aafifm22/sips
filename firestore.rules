@@ -37,13 +37,14 @@ service cloud.firestore {
         // profil sendiri
         (signed() && request.auth.uid == uid && chg(['name', 'phone', 'idNumber', 'prodi', 'requestedStatus', 'notifEmail', 'theme', 'accent', 'colorful']))
         // admin: status, verifikasi, aktif (bukan terhadap Admin Super)
-        || (adm() && resource.data.role != 'superadmin' && chg(['status', 'verified', 'active'])
+        || (adm() && request.auth.uid != uid && resource.data.role != 'superadmin' && chg(['status', 'verified', 'active'])
             && request.resource.data.status in ['Mahasiswa', 'Dosen', 'Tendik', 'Ketua STIKES', 'Waket 1', 'Waket 2'])
         // Admin Super: role & hak pejabat penandatangan pada akun lain
         || (sup() && request.auth.uid != uid && chg(['role', 'signer', 'signerTitle', 'status', 'verified', 'active'])
             && request.resource.data.role in ['klien', 'admin', 'superadmin'])
         // Admin Super: hak pejabat untuk dirinya sendiri
-        || (sup() && request.auth.uid == uid && chg(['signer', 'signerTitle']))
+        || (sup() && request.auth.uid == uid && chg(['signer', 'signerTitle', 'status', 'verified'])
+            && request.resource.data.status in ['Mahasiswa', 'Dosen', 'Tendik', 'Ketua STIKES', 'Waket 1', 'Waket 2'])
         // klaim Admin Super pertama (satu batch dengan pembuatan meta/super)
         || (signed() && request.auth.uid == uid && chg(['role']) && request.resource.data.role == 'superadmin'
             && !exists(/databases/$(database)/documents/meta/super)
@@ -77,6 +78,15 @@ service cloud.firestore {
       allow create, update: if official() && request.resource.data.uid == request.auth.uid && id == request.auth.uid + '_' + request.resource.data.sid
         && request.resource.data.keys().hasOnly(['uid', 'sid', 'sigSha', 'name', 'title', 'active', 'at']);
       allow delete: if false;
+    }
+    // Daftar pilihan (program studi/unit, instansi tujuan): nilai baru dari pengguna tersimpan otomatis; admin dapat merapikan.
+    match /lookups/{id} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['type', 'label', 'at']) && request.resource.data.type in ['prodi', 'tujuan']
+        && request.resource.data.label is string && request.resource.data.label.size() >= 2 && request.resource.data.label.size() <= 80
+        && id.matches('^(prodi|tujuan)__[a-z0-9-]{1,90}$') && near(request.resource.data.at);
+      allow update: if adm() && chg(['label']) && request.resource.data.label.size() >= 2 && request.resource.data.label.size() <= 80;
+      allow delete: if adm();
     }
     match /counters/{k} {
       allow read: if adm();

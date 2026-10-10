@@ -2,8 +2,8 @@
 
 ## 1. Mengenal peran
 - **Tamu**: tanpa login. Mengajukan surat (nama, kontak, email, data sesuai jenis) dan melacak dengan **kode + email**. Simpan keduanya.
-- **Klien**: login Google/email. Melihat semua permintaannya, posisi antrean, durasi tiap tahap, dan mengunduh surat.
-- **Pejabat**: klien (mis. Ketua/Waket) yang diberi hak oleh Admin Super. Login sendiri untuk **menyetujui & menandatangani** surat pada layanan yang menunjuknya.
+- **Pengguna terdaftar** (status: Mahasiswa, Dosen, Tendik, Ketua STIKES, Waket 1, Waket 2): login Google/email. Melihat semua permintaannya, posisi antrean, durasi tiap tahap, dan mengunduh surat.
+- **Pejabat**: pengguna terdaftar (mis. Ketua/Waket) yang diberi hak oleh Admin Super. Login sendiri untuk **menyetujui & menandatangani** surat pada layanan yang menunjuknya.
 - **Admin**: memproses antrean, menyiapkan & menerbitkan surat, mengelola layanan/template, memverifikasi pengguna.
 - **Admin Super**: semua kemampuan Admin + role, hak pejabat, pengaturan aplikasi, audit, cadangan, inisialisasi rantai.
 
@@ -16,8 +16,8 @@
 
 ## 3. Konfirmasi dan pembatalan
 - **Pemohon** dapat membatalkan kapan saja sebelum surat selesai.
-- **Admin tidak dapat membatalkan langsung.** Gunakan **Minta konfirmasi klien** (dengan pertanyaan). Klien punya batas waktu (bawaan 3 hari) untuk memilih **Masih butuh, lanjutkan** atau **Tidak perlu, batalkan**.
-- Hanya jika batas waktu lewat **tanpa jawaban**, tombol **Batalkan (klien tidak menjawab)** aktif. Aturan ini dipaksa oleh aturan keamanan Firestore.
+- **Admin tidak dapat membatalkan langsung.** Gunakan **Minta konfirmasi pemohon** (dengan pertanyaan). Pemohon punya batas waktu (bawaan 3 hari) untuk memilih **Masih butuh, lanjutkan** atau **Tidak perlu, batalkan**.
+- Hanya jika batas waktu lewat **tanpa jawaban**, tombol **Batalkan (pemohon tidak menjawab)** aktif. Aturan ini dipaksa oleh aturan keamanan Firestore.
 
 ## 4. Menerbitkan surat (Admin)
 1. **Proses** pada permintaan > **Mulai proses**.
@@ -69,6 +69,6 @@ Di **Layanan > Alur penerbitan & penandatangan** (Admin):
 Tombol 🎨 di header: mode terang/gelap/otomatis, 9 warna aksen + warna kustom, dan **mode warna-warni**. Pilihan tersimpan per pengguna.
 
 ## 10. Tanya jawab
-- **Lupa kode lacak?** Login jika Anda mengajukan sebagai klien; tamu perlu kode + email yang tersimpan.
+- **Lupa kode lacak?** Login jika Anda mengajukan sebagai pemohon; tamu perlu kode + email yang tersimpan.
 - **Surat salah data?** Hubungi admin; admin menerbitkan revisi.
 - **"Tindakan ditolak oleh aturan keamanan"?** Status berubah atau tindakan belum diizinkan (mis. batas konfirmasi belum lewat). Muat ulang.

@@ -1,5 +1,5 @@
 import { S, F, fs, $, esc, fdate, run, stages, modal, saveFile, tagOf, svc, isAdm, isSup, openQ, QUEUE, DAY, FL, SPECIAL, WHO, STATUS_ALL, STATUS_SELF, hook, flowOf } from './core.js';
-import { reqCard, stageTable, stepper, signChecklist } from './user.js';
+import { reqCard, stageTable, stepper, signChecklist, combo } from './user.js';
 import { doc, getDoc, setDoc, updateDoc, addDoc, deleteDoc, collection, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
 import { putSig, tplBytes, ensureKey, hasKey, cfg, pendingSlots } from './api.js';
 import { sha256, b64, dataUrlBytes } from './crypto.js';
@@ -19,7 +19,7 @@ export function queueV() {
   const o = openQ(), w = S.rq.filter((r) => r.status === 'Menunggu Konfirmasi'), p = S.rq.filter((r) => r.status === 'Menunggu Persetujuan'), dn = S.rq.filter((r) => ['Selesai', 'Dibatalkan'].includes(r.status)).slice(0, 15);
   return `${agentCard()}<div class="card"><h2>Antrean aktif (${o.length})</h2>${o.map((r) => reqCard(r, 1)).join('') || '<p class="mu">Kosong 🎉</p>'}</div>
   <div class="card"><h2>Menunggu persetujuan pejabat (${p.length})</h2>${p.map((r) => reqCard(r, 1)).join('') || '<p class="mu">Tidak ada.</p>'}</div>
-  <div class="card"><h2>Menunggu konfirmasi klien (${w.length})</h2>${w.map((r) => reqCard(r, 1)).join('') || '<p class="mu">Tidak ada.</p>'}</div>
+  <div class="card"><h2>Menunggu konfirmasi pemohon (${w.length})</h2>${w.map((r) => reqCard(r, 1)).join('') || '<p class="mu">Tidak ada.</p>'}</div>
   <div class="card"><h3>Riwayat terbaru</h3>${dn.map((r) => reqCard(r, 1)).join('')}<button class="btn g s" onclick="A.moreClosed()">Muat riwayat lebih lama</button><p class="mu">Memuat lebih banyak menambah pemakaian kuota baca Firestore (Spark: 50.000 baca/hari).</p></div>`;
 }
 export function fbV() {
@@ -247,10 +247,10 @@ async function proc(id) {
   <div class="card"><h3>Tindakan</h3><div class="row">
     ${r.status === 'Diajukan' ? `<button class="btn s" onclick="A.act('${id}','process')">▶ Mulai proses</button>` : ''}
     ${r.status === 'Diajukan' && fl.issue === 'auto' ? `<button class="btn g s" onclick="A.act('${id}','hold')">${r.autoHold ? '▶ Lanjutkan terbit otomatis' : '⏸ Tahan terbit otomatis'}</button>` : ''}
-    ${QUEUE.includes(r.status) ? `<button class="btn g s" onclick="A.askConfirm('${id}')">❓ Minta konfirmasi klien</button>` : ''}
+    ${QUEUE.includes(r.status) ? `<button class="btn g s" onclick="A.askConfirm('${id}')">❓ Minta konfirmasi pemohon</button>` : ''}
     ${['Diajukan', 'Diproses', 'Menunggu Konfirmasi'].includes(r.status) ? `<button class="btn s ${r.priority ? 'r' : ''}" onclick="A.act('${id}','set_priority')">${r.priority ? 'Turunkan prioritas' : '🔥 Sundul / prioritaskan'}</button>` : ''}
-    ${r.status === 'Menunggu Konfirmasi' ? `<button class="btn r s" ${canCancel ? '' : 'disabled'} onclick="A.cancelAdm('${id}')">Batalkan (klien tidak menjawab)</button>` : ''}</div>
-  ${r.status === 'Menunggu Konfirmasi' ? `<p class="mu">Pertanyaan: ${esc(c.question)} · batas jawaban ${fdate(c.deadline)}. ${c.response ? 'Klien menjawab: ' + c.response : canCancel ? 'Batas lewat tanpa jawaban: admin kini boleh membatalkan.' : 'Admin baru boleh membatalkan setelah batas waktu lewat tanpa jawaban klien.'}</p>` : '<p class="mu">Admin tidak dapat membatalkan langsung. Gunakan "Minta konfirmasi klien"; bila klien tidak menjawab sampai batas waktu, permintaan dapat dibatalkan.</p>'}
+    ${r.status === 'Menunggu Konfirmasi' ? `<button class="btn r s" ${canCancel ? '' : 'disabled'} onclick="A.cancelAdm('${id}')">Batalkan (pemohon tidak menjawab)</button>` : ''}</div>
+  ${r.status === 'Menunggu Konfirmasi' ? `<p class="mu">Pertanyaan: ${esc(c.question)} · batas jawaban ${fdate(c.deadline)}. ${c.response ? 'Pemohon menjawab: ' + c.response : canCancel ? 'Batas lewat tanpa jawaban: admin kini boleh membatalkan.' : 'Admin baru boleh membatalkan setelah batas waktu lewat tanpa jawaban pemohon.'}</p>` : '<p class="mu">Admin tidak dapat membatalkan langsung. Gunakan "Minta konfirmasi pemohon"; bila pemohon tidak menjawab sampai batas waktu, permintaan dapat dibatalkan.</p>'}
   ${r.status === 'Menunggu Persetujuan' ? `<p class="mu">✍ Menunggu persetujuan pejabat. ${r.approval && r.approval.note ? 'Catatan: ' + esc(r.approval.note) : ''}</p>` : r.approval && r.approval.state === 'rejected' ? `<p class="mu" style="color:var(--er)">Pejabat meminta revisi: ${esc(r.approval.note || '-')}</p>` : ''}
   <div class="row"><input id="flg" placeholder="Flag (mis. Urgent Akreditasi)" value="${esc(r.flag)}" style="flex:1;margin:0"><button class="btn g s" onclick="A.flag('${id}')">Simpan flag</button></div></div>
   ${editable ? `<div class="card"><h3>Surat ${r.letter ? `· No. ${esc(r.letter.no)} · v${r.letter.version} · rantai #${r.letter.seq}` : ''}</h3>
@@ -276,10 +276,10 @@ Object.assign(A, {
   proc,
   async prev(key) { const b = await run(() => previewOf(key)); if (b) window.open(URL.createObjectURL(new Blob([b], { type: 'application/pdf' })), '_blank'); },
   async askConfirm(id) {
-    const q = prompt('Tulis pertanyaan/alasan untuk klien (mis. "Data kurang lengkap. Apakah surat ini masih Anda perlukan?")'); if (q === null) return;
+    const q = prompt('Tulis pertanyaan/alasan untuk pemohon (mis. "Data kurang lengkap. Apakah surat ini masih Anda perlukan?")'); if (q === null) return;
     if (await run(() => F.change({ id, action: 'ask_confirm', note: q }))) setTimeout(() => proc(id), 500);
   },
-  async cancelAdm(id) { if (confirm('Batalkan permintaan karena klien tidak menjawab konfirmasi? Timer akan berhenti.') && await run(() => F.change({ id, action: 'cancel_admin' }))) modal(''); },
+  async cancelAdm(id) { if (confirm('Batalkan permintaan karena pemohon tidak menjawab konfirmasi? Timer akan berhenti.') && await run(() => F.change({ id, action: 'cancel_admin' }))) modal(''); },
   async flag(id) { if (await run(() => F.change({ id, action: 'set_flag', note: $('#flg').value }))) proc(id); },
   async aiDraft(id) { $('#lc').value = 'Menyusun draf…'; const o = await run(() => F.ai({ id })); const r = S.rq.find((x) => x.id === id); $('#lc').value = o ? o.text : fill(svc(r.sid).body, r.data); keep(id); },
   async saveDraft(id) {
@@ -391,29 +391,35 @@ export function usersV() {
   const sup = isSup();
   return `<div class="card"><h2>Pengguna & Akses</h2><p class="mu">Status Ketua/Waket hanya dapat diberikan admin. <b>Pejabat</b> (khusus Admin Super) = dapat login sendiri untuk menyetujui & menandatangani surat pada layanan yang menunjuknya.</p><div class="scroll"><table><tr><th>Pengguna</th><th>Role</th><th>Status</th><th>Verif.</th><th>Aktif</th><th>Pejabat</th></tr>
   ${S.users.map((u) => `<tr><td><b>${esc(u.name)}</b><div class="mu">${esc(u.email)}${u.requestedStatus && u.requestedStatus !== u.status ? `<br>Mengajukan status: ${esc(u.requestedStatus)}` : ''}</div></td>
-  <td><select ${sup && u.id !== S.user.uid ? '' : 'disabled'} onchange="A.usr('${u.id}',{role:this.value})">${['klien', 'admin', 'superadmin'].map((r) => `<option ${u.role === r ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
-  <td><select ${u.role === 'superadmin' && !sup ? 'disabled' : ''} onchange="A.usr('${u.id}',{status:this.value})">${STATUS_ALL.map((r) => `<option ${u.status === r ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
-  <td><input type="checkbox" ${u.verified ? 'checked' : ''} ${u.role === 'superadmin' && !sup ? 'disabled' : ''} onchange="A.usr('${u.id}',{verified:this.checked})"></td>
-  <td><input type="checkbox" ${u.active !== false ? 'checked' : ''} ${u.id === S.user.uid ? 'disabled' : ''} onchange="A.usr('${u.id}',{active:this.checked})"></td>
+  <td><select ${sup && u.id !== S.user.uid ? '' : 'disabled'} onchange="A.usr('${u.id}',{role:this.value})">${[['klien', '—'], ['admin', 'Admin'], ['superadmin', 'Admin Super']].map(([v, l]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
+  <td><select ${(u.role === 'superadmin' && !sup) || (u.id === S.user.uid && !sup) ? 'disabled' : ''} onchange="A.usr('${u.id}',{status:this.value})">${STATUS_ALL.map((r) => `<option ${u.status === r ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
+  <td><input type="checkbox" ${u.verified ? 'checked' : ''} ${(u.role === 'superadmin' && !sup) || (u.id === S.user.uid && !sup) ? 'disabled' : ''} onchange="A.usr('${u.id}',{verified:this.checked})"></td>
+  <td><input type="checkbox" ${u.active !== false ? 'checked' : ''} ${u.id === S.user.uid || (u.role === 'superadmin' && !sup) ? 'disabled' : ''} onchange="A.usr('${u.id}',{active:this.checked})"></td>
   <td>${sup ? `<input type="checkbox" ${u.signer ? 'checked' : ''} onchange="A.usr('${u.id}',{signer:this.checked})"><input placeholder="Jabatan" value="${esc(u.signerTitle || '')}" style="width:130px" onchange="A.usr('${u.id}',{signerTitle:this.value})">` : u.signer ? '✓ ' + esc(u.signerTitle || '') : '-'}</td></tr>`).join('')}</table></div>
   <p class="mu">Menonaktifkan di sini memblokir akses data aplikasi. Untuk memblokir login sepenuhnya, nonaktifkan akun di Firebase Console > Authentication.</p></div>`;
 }
-A.usr = async (uid, patch) => { await run(() => F.user({ uid, patch })); };
+A.usr = async (uid, patch) => {
+  try { await F.user({ uid, patch }); } catch (e) {
+    console.error(e);
+    alert(/permission|insufficient/i.test(e.message) ? 'Ditolak aturan keamanan. Admin tidak dapat mengubah akunnya sendiri atau akun Admin Super; peran dan hak pejabat hanya dapat diubah Admin Super (dan bukan untuk akun sendiri). Bila Anda sudah Admin Super tetapi tetap ditolak, deploy aturan terbaru: firebase deploy --only firestore:rules.' : e.message);
+  }
+};
 
 /* ---------- Pengaturan ---------- */
 export function settingsV() {
   const p = S.p || {}, s = S.set || {}, sup = isSup();
   return `<div class="card"><h2>Profil & preferensi saya</h2>
-  <label>Nama lengkap</label><input id="p_name" value="${esc(p.name)}"><label>HP / WhatsApp</label><input id="p_phone" value="${esc(p.phone)}"><label>NIM / NIP</label><input id="p_id" value="${esc(p.idNumber)}"><label>Program studi / unit</label><input id="p_prodi" value="${esc(p.prodi)}">
+  <label>Nama lengkap</label><input id="p_name" value="${esc(p.name)}"><label>HP / WhatsApp</label><input id="p_phone" value="${esc(p.phone)}"><label>NIM / NIP</label><input id="p_id" value="${esc(p.idNumber)}"><label>Program studi / unit</label>${combo('p_prodi', 'prodi', p.prodi)}
   <label>Status yang diajukan (diverifikasi admin; status saat ini: <b>${esc(p.status)}</b> ${p.verified ? '✓ terverifikasi' : '(belum terverifikasi)'})</label><select id="p_req">${STATUS_SELF.map((x) => `<option ${p.requestedStatus === x ? 'selected' : ''}>${x}</option>`).join('')}</select>
   <div class="row"><button class="btn g" onclick="A.themeM()">🎨 Tema & warna</button></div>
   <label class="chk"><input type="checkbox" id="p_mail" ${p.notifEmail !== false ? 'checked' : ''}>Terima notifikasi email (bila webhook email diaktifkan admin)</label><br><button class="btn" onclick="A.saveProfile()">Simpan profil</button></div>
-  ${isAdm() ? `<div class="card"><h3>API key AI (opsional)</h3><p class="mu">Disimpan <b>hanya di browser ini</b> (localStorage), dikirim langsung ke Anthropic untuk "Draf dengan AI". Jangan dipakai di komputer bersama.</p><input id="ai_key" type="password" placeholder="sk-ant-..." value="${esc(localStorage.getItem('ly-ai-key') || '')}"><button class="btn g s" onclick="localStorage.setItem('ly-ai-key',$('#ai_key').value.trim());alert('Tersimpan di browser ini')">Simpan</button></div>` : ''}
+  ${isAdm() ? `<div class="card"><h3>Data master pilihan</h3><p class="mu">Nilai yang diketik pengguna otomatis tersimpan dan muncul di dropdown berikutnya. Hapus yang salah atau duplikat.</p>${[['prodi', 'Program studi / unit'], ['tujuan', 'Instansi tujuan']].map(([t, l]) => `<b>${l}</b><div style="margin:6px 0">${(S.lkDocs || []).filter((x) => x.type === t).map((x) => `<span class="tag">${esc(x.label)} <a href="#" onclick="A.lkDel('${x.id}');return false" title="Hapus">×</a></span>`).join('') || '<span class="mu">(belum ada)</span>'}</div><div class="row"><input id="lk_${t}" placeholder="Tambah ${l.toLowerCase()}" style="flex:1;margin:0"><button class="btn g s" onclick="A.lkAdd('${t}')">Tambah</button></div>`).join('')}</div>
+  <div class="card"><h3>API key AI (opsional)</h3><p class="mu">Disimpan <b>hanya di browser ini</b> (localStorage), dikirim langsung ke Anthropic untuk "Draf dengan AI". Jangan dipakai di komputer bersama.</p><input id="ai_key" type="password" placeholder="sk-ant-..." value="${esc(localStorage.getItem('ly-ai-key') || '')}"><button class="btn g s" onclick="localStorage.setItem('ly-ai-key',$('#ai_key').value.trim());alert('Tersimpan di browser ini')">Simpan</button></div>` : ''}
   ${sup ? `<div class="card"><h2>Pengaturan aplikasi</h2>
   <label>Nama institusi</label><input id="a_inst" value="${esc(s.instName || 'STIKES YKY Yogyakarta')}"><label>Alamat (kop surat)</label><input id="a_addr" value="${esc(s.address || '')}"><label>Kota (tempat tanda tangan)</label><input id="a_city" value="${esc(s.city || 'Yogyakarta')}">
   <label>URL aplikasi, mis. https://project-id.web.app/ (dipakai QR verifikasi di surat)</label><input id="a_url" value="${esc(s.appUrl || '')}">
   <label>Format nomor surat ({n} urut, {kode}, {bln} romawi, {thn})</label><input id="a_fmt" value="${esc(s.letterNoFormat || '{n}/{kode}/STIKES-YKY/{bln}/{thn}')}">
-  <label>Batas waktu klien menjawab konfirmasi (hari)</label><input id="a_cd" type="number" min="1" value="${s.confirmDays || 3}">
+  <label>Batas waktu pemohon menjawab konfirmasi (hari)</label><input id="a_cd" type="number" min="1" value="${s.confirmDays || 3}">
   <div><span class="mu">Prioritas otomatis untuk status:</span> ${STATUS_ALL.map((x) => `<label class="chk"><input type="checkbox" class="a_ap" value="${x}" ${(s.autoPriority || ['Ketua STIKES', 'Waket 1', 'Waket 2']).includes(x) ? 'checked' : ''}>${x}</label>`).join('')}</div>
   <label>Penyimpanan salinan surat</label><select id="a_arc"><option value="off" ${!s.archive && s.archivePdf !== 'on' || s.archive === 'off' ? 'selected' : ''}>Ringkas: data + hash saja (PDF/HTML dibuat ulang saat dibuka)</option><option value="html" ${s.archive === 'html' ? 'selected' : ''}>Ringkas + salinan HTML tersimpan (≤150 KB, terbaca tanpa PDF viewer)</option><option value="pdf" ${s.archive === 'pdf' || (!s.archive && s.archivePdf === 'on') ? 'selected' : ''}>Arsip: HTML + PDF terkompresi (boros; hanya untuk surat tanpa template)</option></select>
   <label>URL webhook email (Google Apps Script, opsional)</label><input id="a_mail" value="${esc(s.mailWebhook || '')}" placeholder="https://script.google.com/macros/s/.../exec">
@@ -428,7 +434,7 @@ Object.assign(A, {
   async saveProfile() {
     const v = { name: $('#p_name').value.trim(), phone: $('#p_phone').value.trim(), idNumber: $('#p_id').value.trim(), prodi: $('#p_prodi').value.trim(), requestedStatus: $('#p_req').value, notifEmail: $('#p_mail').checked };
     if (!v.name) return alert('Nama wajib diisi');
-    if (await run(() => updateDoc(doc(fs, 'users', S.user.uid), v))) alert('Profil disimpan');
+    if (await run(() => updateDoc(doc(fs, 'users', S.user.uid), v))) { F.saveLookups([{ type: 'prodi', label: v.prodi }]); alert('Profil disimpan'); }
   },
   async saveSet() {
     const v = { instName: $('#a_inst').value, address: $('#a_addr').value, city: $('#a_city').value, appUrl: $('#a_url').value.trim(), letterNoFormat: $('#a_fmt').value, confirmDays: +$('#a_cd').value || 3, archive: $('#a_arc').value, mailWebhook: $('#a_mail').value.trim(), aiModel: $('#a_ai').value.trim(), autoPriority: [...document.querySelectorAll('.a_ap:checked')].map((x) => x.value) };
@@ -439,5 +445,7 @@ Object.assign(A, {
     saveFile('cadangan-layanan-surat-' + new Date().toISOString().slice(0, 10) + '.json', o.json, 'application/json');
     await run(() => setDoc(doc(fs, 'settings', 'app'), { lastBackupAt: Date.now() }, { merge: true }));
   },
+  async lkAdd(t) { const v = $('#lk_' + t).value; await F.saveLookups([{ type: t, label: v }]); $('#lk_' + t).value = ''; },
+  async lkDel(id) { if (confirm('Hapus pilihan ini dari dropdown?')) await run(() => deleteDoc(doc(fs, 'lookups', id))); },
   async loadAudit() { const q = await getDocs(query(collection(fs, 'audit'), orderBy('at', 'desc'), limit(200))); S.audit = q.docs.map((d) => d.data()); hook.render(); },
 });

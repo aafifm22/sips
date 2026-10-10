@@ -11,15 +11,26 @@ function wrap(text, font, size, maxW) {
   }
   return out;
 }
-export async function qrPng(url) {
-  const u = await window.QRCode.toDataURL(url, { margin: 1, width: 260 });
-  return Uint8Array.from(atob(u.split(',')[1]), (c) => c.charCodeAt(0));
+/** QR digambar sebagai persegi vektor (bukan gambar PNG) agar PDF deterministik di semua browser. */
+function drawQr(pg, x, y, size, text) {
+  const { rgb } = P(), m = window.QRMatrix(text), n = m.length, u = size / (n + 2);
+  pg.drawRectangle({ x, y, width: size, height: size, color: rgb(1, 1, 1) });
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+    if (!m[r][c]) continue; let e = c; while (e + 1 < n && m[r][e + 1]) e++;
+    pg.drawRectangle({ x: x + (c + 1) * u, y: y + size - (r + 2) * u, width: (e - c + 1) * u, height: u, color: rgb(0, 0, 0) }); c = e;
+  }
+}
+/** QR sebagai SVG inline (untuk salinan HTML). */
+export function qrSvg(text, px = 80) {
+  const m = window.QRMatrix(text), n = m.length; let d = '';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) { if (!m[r][c]) continue; let e = c; while (e + 1 < n && m[r][e + 1]) e++; d += `M${c + 1} ${r + 1}h${e - c + 1}v1h-${e - c + 1}z`; c = e; }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 ${n + 2} ${n + 2}" shape-rendering="crispEdges"><rect width="${n + 2}" height="${n + 2}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
 }
 /** rec = catatan surat beku (isi, data, penandatangan, nomor, tanggal, kop). tpl = {bytes, mode, map} | null. */
 export async function buildPdf({ rec, tpl, sigPng, sigMap, verifyUrl }) {
   const { PDFDocument, StandardFonts } = P();
   const keys = { ...rec.data, nama: rec.data.nama || rec.reqName, _nomor: rec.no, _tanggal: rec.date, _isi: rec.content, _ttd_nama: rec.signerName || '', _ttd_jabatan: rec.signerTitle || '' };
-  const qr = await qrPng(verifyUrl), when = new Date(rec.at);
+  const when = new Date(rec.at);
   // penandatangan: daftar baru (rec.signers) atau satu penandatangan lama
   const signers = rec.signers && rec.signers.length ? rec.signers.map((s) => ({ ...s, png: (sigMap || {})[s.key] || null })) : (rec.signerName || rec.signerTitle ? [{ key: '_', name: rec.signerName, title: rec.signerTitle, png: sigPng }] : []);
   const sOf = (k) => (k ? signers.find((s) => s.key === k) : signers[0]);
@@ -32,12 +43,12 @@ export async function buildPdf({ rec, tpl, sigPng, sigMap, verifyUrl }) {
       for (const [k, v] of Object.entries(keys)) { if (k[0] === '_' && !['_nomor', '_tanggal', '_isi', '_ttd_nama', '_ttd_jabatan'].includes(k)) continue; try { form.getTextField(k).setText(safe(v)); } catch (e) { /* tidak ada */ } }
       try { form.flatten(); } catch (e) { /* abaikan */ }
     }
-    const pages = pdf.getPages(), qimg = await pdf.embedPng(qr);
+    const pages = pdf.getPages();
     for (const [k, p] of Object.entries(tpl.map || {})) {
       const pg = pages[p.page || 0]; if (!pg) continue;
       if (k === '_ttd' || k.startsWith('_ttd:')) { const s = sOf(k.split(':')[1]); if (s && s.png) pg.drawImage(await pdf.embedPng(s.png), { x: p.x, y: p.y, width: p.w || 140, height: p.h || 60 }); continue; }
       if (k.startsWith('_ttd_nama:') || k.startsWith('_ttd_jabatan:')) { const s = sOf(k.split(':')[1]), v = s && (k.startsWith('_ttd_nama') ? s.name : s.title); if (v) pg.drawText(safe(v), { x: p.x, y: p.y, size: p.size || 11, font }); continue; }
-      if (k === '_qr') { pg.drawImage(qimg, { x: p.x, y: p.y, width: p.w || 70, height: p.w || 70 }); continue; }
+      if (k === '_qr') { drawQr(pg, p.x, p.y, p.w || 70, verifyUrl); continue; }
       if (k === '_isi') { const size = p.size || 11; wrap(safe(keys._isi), font, size, p.w || 450).forEach((l, i) => pg.drawText(l, { x: p.x, y: p.y - i * size * 1.35, size, font })); continue; }
       const v = keys[k]; if (v == null || v === '') continue;
       pg.drawText(safe(v), { x: p.x, y: p.y, size: p.size || 11, font });
@@ -77,7 +88,7 @@ export async function buildPdf({ rec, tpl, sigPng, sigMap, verifyUrl }) {
         y -= 100;
       }
     }
-    pg.drawImage(await pdf.embedPng(qr), { x: M - 20, y: 45, width: 62, height: 62 });
+    drawQr(pg, M - 20, 45, 62, verifyUrl);
     pg.drawText('Dokumen ditandatangani digital. Verifikasi: pindai QR atau buka', { x: M + 50, y: 85, size: 7.5, font: tr });
     pg.drawText(safe(verifyUrl), { x: M + 50, y: 75, size: 7.5, font: tr });
   }

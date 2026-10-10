@@ -3,7 +3,7 @@
 import { doc, getDoc, getDocs, setDoc, updateDoc, addDoc, deleteDoc, collection, query, where, orderBy, arrayUnion, writeBatch, runTransaction, getCountFromServer } from 'firebase/firestore';
 import { S, F, fs, auth, DAY, svc, isAdm, QUEUE, stages, flowOf } from './core.js';
 import { sha256, canon, getKey, putKey, newKey, signMsg, verifySig, dataUrlBytes, unb64, b64, entryHashOf, sigMsgOf, soMsgOf, GENESIS } from './crypto.js';
-import { buildPdf } from './pdf.js';
+import { buildPdf, qrSvg } from './pdf.js';
 
 const NOW = () => Date.now();
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
@@ -45,6 +45,15 @@ Object.assign(F, {
     } else if (s.data().active === false) throw new Error('Akun dinonaktifkan. Hubungi admin.');
     return { refresh: false };
   },
+  /** Simpan nilai baru ke daftar pilihan bersama (muncul di dropdown berikutnya). */
+  async saveLookups(items) {
+    for (const { type, label } of items) {
+      const l = String(label || '').trim().replace(/\s+/g, ' ');
+      if (l.length < 2 || l.length > 80 || ((S.lk || {})[type] || []).some((x) => x.toLowerCase() === l.toLowerCase())) continue;
+      const slug = l.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80); if (!slug) continue;
+      await setDoc(doc(fs, 'lookups', `${type}__${slug}`), { type, label: l, at: NOW() }).catch(() => {});
+    }
+  },
   async user({ uid, patch }) { await updateDoc(doc(fs, 'users', uid), patch); audit('user.update', uid, JSON.stringify(patch)); },
   async claimSuper() {
     const u = auth.currentUser, b = writeBatch(fs);
@@ -57,6 +66,9 @@ Object.assign(F, {
 
 /* ---------------- permintaan ---------------- */
 async function queuePos(r) {
+  try { return await queuePos0(r); } catch (e) { console.warn('antrean:', e.message); return null; }
+}
+async function queuePos0(r) {
   const base = collection(fs, 'queuePub'), p = r.priority || 0, c = async (q) => (await getCountFromServer(q)).data().count;
   const [a, b, t] = await Promise.all([c(query(base, where('pr', '>', p))), c(query(base, where('pr', '==', p), where('t', '<', r.createdAt))), c(base)]);
   return { pos: a + b + 1, total: Math.max(t, a + b + 1) };
@@ -105,10 +117,10 @@ Object.assign(F, {
     switch (action) {
       case 'process': await updateDoc(ref, H('Diproses')); await notifyReq(r, 'Permintaan sedang diproses', `Permintaan ${r.code} (${r.sname}) kini diproses admin.`); break;
       case 'ask_confirm':
-        if (!nt.trim()) throw new Error('Tuliskan pertanyaan/alasan untuk klien');
+        if (!nt.trim()) throw new Error('Tuliskan pertanyaan/alasan untuk pemohon');
         await updateDoc(ref, H('Menunggu Konfirmasi', { confirm: { askedAt: now, deadline: now + days * DAY, response: null, question: nt.slice(0, 500), prev: r.status } }));
         await dropQ(); await notifyReq(r, 'Mohon konfirmasi: masih diperlukan?', `Permintaan ${r.code}: ${nt}. Mohon jawab sebelum ${new Date(now + days * DAY).toLocaleDateString('id-ID')}; tanpa jawaban, permintaan dapat dibatalkan admin.`); break;
-      case 'respond_continue': await updateDoc(ref, H(r.confirm.prev, { confirm: { ...r.confirm, response: 'lanjut', respondedAt: now } })); await addQ(); await notifyAdmin(`Klien menjawab: lanjut (${r.code})`, `${r.requester.name} - ${r.sname}`, id); break;
+      case 'respond_continue': await updateDoc(ref, H(r.confirm.prev, { confirm: { ...r.confirm, response: 'lanjut', respondedAt: now } })); await addQ(); await notifyAdmin(`Pemohon menjawab: lanjut (${r.code})`, `${r.requester.name} - ${r.sname}`, id); break;
       case 'cancel_user': await updateDoc(ref, H('Dibatalkan', { endedAt: now, endType: 'user', confirm: r.confirm ? { ...r.confirm, response: 'batal', respondedAt: now } : null })); await dropQ(); await notifyAdmin(`Dibatalkan pemohon: ${r.code}`, `${r.requester.name} - ${r.sname}`, id); break;
       case 'cancel_admin': await updateDoc(ref, H('Dibatalkan', { endedAt: now, endType: 'admin_no_response' })); await dropQ(); await notifyReq(r, 'Permintaan dibatalkan', `Permintaan ${r.code} dibatalkan karena tidak ada konfirmasi dari Anda hingga batas waktu.`); break;
       case 'set_priority': await updateDoc(ref, { priority: r.priority ? 0 : 1, updatedAt: now }); await updateDoc(doc(fs, 'queuePub', id), { pr: r.priority ? 0 : 1 }).catch(() => {}); await notifyReq(r, `Prioritas ${r.code}`, r.priority ? 'Prioritas dikembalikan normal.' : 'Permintaan Anda diprioritaskan.'); break;
@@ -287,9 +299,9 @@ async function buildHtml(rec, { docHash, seq }) {
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const sigs = rec.signers && rec.signers.length ? rec.signers : [{ name: rec.signerName, title: rec.signerTitle, sigSha: rec.sigSha }];
   const imgs = await Promise.all(sigs.map(async (s) => { if (!s.sigSha) return ''; const d = await getDoc(doc(fs, 'signatures', s.sigSha)); return d.exists() ? d.data().png : ''; }));
-  const qr = await window.QRCode.toDataURL(rec.verifyUrl, { margin: 1, width: 160 });
+  const qr = qrSvg(rec.verifyUrl, 80);
   const blocks = sigs.map((s, i) => `<div class="ttd"><b>${esc(s.title || '')}</b>${imgs[i] ? `<img src="${imgs[i]}" alt="tanda tangan">` : '<br><br><br>'}<b><u>${esc(s.name || '')}</u></b>${s.delegated ? '<br><small>(tanda tangan atas delegasi)</small>' : ''}</div>`).join('');
-  return `<!doctype html><html lang="id"><head><meta charset="utf-8"><title>${esc(rec.no)}</title><style>@page{size:A4;margin:2cm}body{font:12pt/1.6 "Times New Roman",serif;max-width:21cm;margin:0 auto;padding:1.5cm;color:#111}.kop{text-align:center;border-bottom:3px double #111;padding-bottom:6px;margin-bottom:14px}h2{text-align:center;text-decoration:underline;margin:18px 0 0;font-size:13pt}.no{text-align:center}.isi{white-space:pre-wrap}.tgl{text-align:right;margin-top:24px}.sg{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:28px}.ttd img{height:64px;display:block}.f{margin-top:30px;border-top:1px solid #999;padding-top:8px;font:9pt monospace;word-break:break-all;display:flex;gap:10px;align-items:center}</style></head><body><div class="kop"><b style="font-size:15pt">${esc((rec.instName || '').toUpperCase())}</b><br>${esc(rec.address || '')}</div><h2>${esc((rec.serviceName || '').toUpperCase())}</h2><div class="no">Nomor: ${esc(rec.no)}</div><p class="isi">${esc(rec.content)}</p><div class="tgl">${esc(rec.city || '')}, ${esc(rec.date)}</div><div class="sg">${blocks}</div><div class="f"><img src="${qr}" width="80" height="80" alt="QR"><div>Salinan HTML untuk dibaca. Keabsahan mengacu pada PDF &amp; rantai hash.${rec.auto ? '<br>Diterbitkan otomatis tanpa pengecekan ulang admin.' : ''}<br>Rantai #${seq} · SHA-256 PDF: ${docHash}<br>Verifikasi: ${esc(rec.verifyUrl)}</div></div></body></html>`;
+  return `<!doctype html><html lang="id"><head><meta charset="utf-8"><title>${esc(rec.no)}</title><style>@page{size:A4;margin:2cm}body{font:12pt/1.6 "Times New Roman",serif;max-width:21cm;margin:0 auto;padding:1.5cm;color:#111}.kop{text-align:center;border-bottom:3px double #111;padding-bottom:6px;margin-bottom:14px}h2{text-align:center;text-decoration:underline;margin:18px 0 0;font-size:13pt}.no{text-align:center}.isi{white-space:pre-wrap}.tgl{text-align:right;margin-top:24px}.sg{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:28px}.ttd img{height:64px;display:block}.f{margin-top:30px;border-top:1px solid #999;padding-top:8px;font:9pt monospace;word-break:break-all;display:flex;gap:10px;align-items:center}</style></head><body><div class="kop"><b style="font-size:15pt">${esc((rec.instName || '').toUpperCase())}</b><br>${esc(rec.address || '')}</div><h2>${esc((rec.serviceName || '').toUpperCase())}</h2><div class="no">Nomor: ${esc(rec.no)}</div><p class="isi">${esc(rec.content)}</p><div class="tgl">${esc(rec.city || '')}, ${esc(rec.date)}</div><div class="sg">${blocks}</div><div class="f">${qr}<div>Salinan HTML untuk dibaca. Keabsahan mengacu pada PDF &amp; rantai hash.${rec.auto ? '<br>Diterbitkan otomatis tanpa pengecekan ulang admin.' : ''}<br>Rantai #${seq} · SHA-256 PDF: ${docHash}<br>Verifikasi: ${esc(rec.verifyUrl)}</div></div></body></html>`;
 }
 export async function letterHtml(L) { return L.htmlGz ? new TextDecoder().decode(await gunzip(unb64(L.htmlGz))) : buildHtml(L.rec, { docHash: L.docHash, seq: L.seq }); }
 F.html = async ({ id, version }) => {

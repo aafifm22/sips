@@ -31,12 +31,12 @@ pd.json_normalize([d['data'] for d in j['data']['requests']]).to_parquet('reques
 - **HTML**: surat HTML kecil, tetapi tidak setara PDF untuk hasil cetak dan tidak mengikat hash ke tampilan. Surat bertemplate PDF tetap rujukan; mode Ringkas sudah sekecil data teksnya.
 
 ## Menghemat kuota baca (50.000/hari)
-Admin memuat semua permintaan terbuka + 150 riwayat terbaru; tombol "Muat riwayat lebih lama" menambah. Hindari me-refresh halaman berulang-ulang. Klien hanya membaca permintaannya sendiri. Persistensi cache browser dapat ditambahkan bila kuota mulai ketat.
+Admin memuat semua permintaan terbuka + 150 riwayat terbaru; tombol "Muat riwayat lebih lama" menambah. Hindari me-refresh halaman berulang-ulang. Pemohon hanya membaca permintaannya sendiri. Persistensi cache browser dapat ditambahkan bila kuota mulai ketat.
 
 ## Apakah cukup di Firestore Spark tanpa Google Drive?
 Untuk satu kampus, ya. Dengan ±8-15 KB per surat, 20-50 surat/hari menghasilkan 15-20 ribu surat/tahun ≈ 0,2-0,3 GB/tahun, jadi ±3-5 tahun sebelum 1 GiB penuh (estimasi). Pantau di Firebase Console > Firestore > Usage. Tanda perlu bertindak: data >70% kuota, kuota baca/tulis harian sering habis, atau >100 surat/hari. Pilihan saat itu: (1) ekspor lalu arsipkan surat lama ke Drive/ZIP, (2) naik ke Blaze (tetap murah untuk skala ini) tanpa mengubah struktur data.
 
-**Drive sebagai penyimpanan utama tidak disarankan**: token akses hanya ±1 jam dan butuh admin online, berkas milik satu akun (risiko saat admin berganti), klien/tamu tidak dapat membaca Drive admin (unduhan dan verifikasi bergantung pada admin), dan izin OAuth perlu dikelola. Drive paling tepat untuk **cadangan/arsip** yang dikendalikan admin.
+**Drive sebagai penyimpanan utama tidak disarankan**: token akses hanya ±1 jam dan butuh admin online, berkas milik satu akun (risiko saat admin berganti), pemohon/tamu tidak dapat membaca Drive admin (unduhan dan verifikasi bergantung pada admin), dan izin OAuth perlu dikelola. Drive paling tepat untuk **cadangan/arsip** yang dikendalikan admin.
 
 ## Jika PDF tidak disimpan, bagaimana membukanya lagi?
 PDF tidak hilang: dibuat ulang dari catatan beku (isi, data, nomor, penandatangan, gambar tanda tangan, versi template) dan hash-nya dicocokkan dengan rantai. Admin/pemohon membukanya lagi lewat **Unduh** atau **Lihat HTML**. Syaratnya data pendukung tidak hilang: template & tanda tangan tidak dapat dihapus oleh aturan Firestore, dan **Ekspor massal** ke Drive/ZIP menyimpan PDF asli sebagai salinan independen (disarankan rutin).

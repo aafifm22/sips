@@ -1,5 +1,16 @@
 [
  {
+  "v": "2.2.1",
+  "date": "2026-10-10",
+  "notes": [
+   "Perbaikan: pratinjau/penerbitan PDF gagal pada QR ('toDataURL'). QR kini digambar vektor oleh pembuat QR bawaan (vendor/), sehingga juga identik di semua browser. pdf-lib dikunci lokal (vendor/) karena hash PDF bergantung versinya.",
+   "Perbaikan: 'Permintaan Saya' tidak muncul bila indeks Firestore belum siap; kueri kini tanpa indeks gabungan, galat dimuat tampil sebagai banner, dan kegagalan posisi antrean tidak lagi menggagalkan pelacakan.",
+   "Istilah 'Klien' tidak lagi tampil di antarmuka (hanya status pengguna: Mahasiswa/Dosen/dst, Admin, Admin Super).",
+   "Program studi/unit dan Instansi tujuan berupa dropdown + 'Tulis sendiri'; nilai baru tersimpan dan muncul di dropdown berikutnya; admin dapat merapikan di Pengaturan > Data master.",
+   "Pengguna: aturan dan tampilan diselaraskan (Admin tidak dapat mengubah akunnya sendiri/Admin Super; Admin Super boleh mengubah status & verifikasi dirinya); pesan penolakan lebih jelas."
+  ]
+ },
+ {
   "v": "2.2.0",
   "date": "2026-10-10",
   "notes": [
@@ -36,9 +47,9 @@
   "v": "1.0.0",
   "date": "2026-10-09",
   "notes": [
-   "Rilis awal versi Firebase: 4 role (Admin Super, Admin, Klien, Tamu), login Google/email, antrean & prioritas.",
+   "Rilis awal versi Firebase: 4 role (Admin Super, Admin, Pemohon, Tamu), login Google/email, antrean & prioritas.",
    "Durasi per tahap (Diajukan, Diproses, Menunggu Konfirmasi, Selesai/Dibatalkan); timer berhenti saat selesai/dibatalkan.",
-   "Aturan pembatalan: pemohon kapan saja; admin hanya setelah klien tidak menjawab konfirmasi sampai batas waktu.",
+   "Aturan pembatalan: pemohon kapan saja; admin hanya setelah pemohon tidak menjawab konfirmasi sampai batas waktu.",
    "Template PDF (AcroForm / penempatan koordinat) dengan riwayat versi template dan rollback.",
    "Tanda tangan: gambar langsung, unggah, atau pakai tersimpan; nama & jabatan dapat diubah; QR verifikasi keaslian.",
    "Riwayat versi surat (revisi), audit log, cadangan manual & mingguan, pemulihan, pengaturan pengguna & aplikasi, panduan."

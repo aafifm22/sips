@@ -14,5 +14,5 @@
 ## Penerbitan otomatis & delegasi (v2.2)
 - Di Spark tidak ada server; "terbit otomatis" dijalankan oleh sesi admin yang terbuka. Surat tercatat dengan kunci perangkat admin tersebut dan ditandai "diterbitkan otomatis" (juga di rantai). Jika tidak ada penerbit aktif, permintaan menunggu.
 - Tanda tangan **delegasi** hanyalah gambar yang dibubuhkan atas izin pejabat (aktivasi dapat dicabut). Ia **bukan** tanda tangan kriptografis pejabat; hanya tanda tangan manual yang memakai kunci pejabat.
-- Tiap tanda tangan manual mengikat hash isi surat; bila isi diubah setelahnya, penerbitan ditolak dan persetujuan harus diulang. Aturan Firestore memastikan hanya pejabat yang ditunjuk menambah tanda tangannya; **urutan berjenjang dan kelengkapan checklist ditegakkan oleh aplikasi (klien), bukan oleh aturan Firestore**.
+- Tiap tanda tangan manual mengikat hash isi surat; bila isi diubah setelahnya, penerbitan ditolak dan persetujuan harus diulang. Aturan Firestore memastikan hanya pejabat yang ditunjuk menambah tanda tangannya; **urutan berjenjang dan kelengkapan checklist ditegakkan oleh aplikasi (pemohon), bukan oleh aturan Firestore**.
 - Revisi surat untuk layanan dengan lebih dari satu penandatangan manual tidak didukung (ajukan permintaan baru).

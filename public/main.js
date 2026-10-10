@@ -64,7 +64,7 @@ async function render() {
   if (!S.ready) return;
   const un = S.nt.filter((n) => !n.read).length;
   $('#brand').textContent = '📮 ' + (S.set.instName || 'Layanan Surat');
-  $('#who').innerHTML = `<button class="btn g s" onclick="A.themeM()" title="Tema & warna">🎨</button> ` + (S.user ? `<span class="mu">${esc(S.p ? S.p.name : '')} · ${esc(S.p ? S.p.role : '')}${S.p && S.p.role === 'klien' ? ' · ' + esc(S.p.status) + (S.p.verified ? '' : ' (belum verifikasi)') : ''}${isOff() ? ' · pejabat' : ''}</span> ${un ? `<span class="tag er">🔔 ${un}</span>` : ''} <button class="btn g s" onclick="A.logout()">Keluar</button>` : '<button class="btn s" onclick="A.mode(\'in\')">Masuk</button>');
+  $('#who').innerHTML = `<button class="btn g s" onclick="A.themeM()" title="Tema & warna">🎨</button> ` + (S.user ? `<span class="mu">${esc(S.p ? S.p.name : '')} · ${S.p && S.p.role === 'superadmin' ? 'Admin Super' : S.p && S.p.role === 'admin' ? 'Admin' : esc(S.p ? S.p.status : '') + (S.p && !S.p.verified ? ' (belum verifikasi)' : '')}${isOff() ? ' · pejabat' : ''}</span> ${un ? `<span class="tag er">🔔 ${un}</span>` : ''} <button class="btn g s" onclick="A.logout()">Keluar</button>` : '<button class="btn s" onclick="A.mode(\'in\')">Masuk</button>');
   if (location.hash.startsWith('#/v/')) S.view = 'verif';
   const t = tabs();
   if (!t.some((x) => x[0] === S.view) && !['login'].includes(S.view)) S.view = S.user ? (isAdm() ? 'dash' : 'home') : 'ajukan';
@@ -72,7 +72,8 @@ async function render() {
   const code = location.hash.startsWith('#/v/') ? decodeURIComponent(location.hash.slice(4)) : '';
   const views = { home: homeV, ajukan: ajukanV, mine: mineV, lacak: lacakV, dash: () => (isAdm() ? checklistV() + attentionV() : '') + dashV(), queue: queueV, svc: svcV, users: usersV, fb: fbV, notif: notifV, set: settingsV, audit: auditV, appr: approveV, ledger: ledgerV, export: exportV, verif: () => verifyV(code), guide: guideV, ver: verV, login: loginV };
   const claim = S.user && S.metaSuper === false ? '<div class="card" style="border-left:4px solid var(--wa)"><b>Belum ada Admin Super.</b> Jika Anda pemilik/pengelola aplikasi ini, klaim sekarang (sekali saja).<br><button class="btn s" onclick="A.claim()">Jadikan saya Admin Super</button></div>' : '';
-  $('#app').innerHTML = claim + await views[S.view]();
+  const errB = S.err ? `<div class="card" style="border-left:4px solid var(--er)"><b>Gagal memuat sebagian data</b><div class="mu" style="word-break:break-all">${esc(S.err)}</div><div class="mu">Jika menyebut "index", buka tautan di pesan itu atau jalankan <code>firebase deploy --only firestore:indexes</code> (indeks butuh beberapa menit). Jika menyebut "permission", deploy aturan terbaru: <code>firebase deploy --only firestore:rules</code>.</div></div>` : '';
+  $('#app').innerHTML = errB + claim + await views[S.view]();
   $('#foot').textContent = `Layanan Surat v${CL[0] ? CL[0].v : ''} · ${S.set.instName || ''}`;
 }
 hook.render = render;
@@ -82,18 +83,22 @@ window.addEventListener('hashchange', render);
 function publicSubs() {
   onSnapshot(doc(fs, 'settings', 'app'), (d) => { S.set = d.data() || {}; applyTheme(); render(); });
   onSnapshot(collection(fs, 'services'), (q) => { S.sv = q.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name || '').localeCompare(b.name || '')); render(); });
+  onSnapshot(collection(fs, 'lookups'), (q) => {
+    S.lkDocs = q.docs.map((d) => ({ id: d.id, ...d.data() })); S.lk = { prodi: [], tujuan: [] };
+    S.lkDocs.forEach((x) => S.lk[x.type] && S.lk[x.type].push(x.label)); Object.values(S.lk).forEach((l) => l.sort((a, b) => a.localeCompare(b))); render();
+  }, () => {});
   onSnapshot(doc(fs, 'meta', 'ledgerHead'), (d) => { S.head = d.exists() ? d.data() : null; render(); }, () => {});
   onSnapshot(doc(fs, 'meta', 'super'), (d) => { S.metaSuper = d.exists(); render(); }, () => {});
 }
 function startData() {
   dataUnsub.forEach((f) => f()); dataUnsub = [];
-  const u = S.user, adm = isAdm(), err = (e) => console.error(e), on = (q, fn) => dataUnsub.push(onSnapshot(q, fn, err));
+  const u = S.user, adm = isAdm(), err = (e) => { console.error(e); S.err = (e.code || '') + ': ' + (e.message || e); render(); }, on = (q, fn) => dataUnsub.push(onSnapshot(q, fn, err));
   if (adm) {
     const m = { open: [], closed: [] }, merge = () => { S.rq = [...m.open, ...m.closed].sort((a, b) => b.createdAt - a.createdAt); render(); };
     on(query(collection(fs, 'requests'), where('status', 'in', ['Diajukan', 'Diproses', 'Menunggu Konfirmasi', 'Menunggu Persetujuan'])), (q) => { m.open = q.docs.map((d) => ({ id: d.id, ...d.data() })); merge(); F.sweepQueue(); });
     on(query(collection(fs, 'requests'), where('status', 'in', ['Selesai', 'Dibatalkan']), orderBy('createdAt', 'desc'), limit(S.closedLimit)), (q) => { m.closed = q.docs.map((d) => ({ id: d.id, ...d.data() })); merge(); });
     on(collection(fs, 'users'), (q) => { S.users = q.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name || '').localeCompare(b.name || '')); render(); });
-  } else on(query(collection(fs, 'requests'), where('ownerUid', '==', u.uid), orderBy('createdAt', 'desc')), (q) => { S.rq = q.docs.map((d) => ({ id: d.id, ...d.data() })); render(); A.refresh(); });
+  } else on(query(collection(fs, 'requests'), where('ownerUid', '==', u.uid)), (q) => { S.err = ''; S.rq = q.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => b.createdAt - a.createdAt); render(); A.refresh(); });
   if (isOff()) on(query(collection(fs, 'requests'), where('approvers', 'array-contains', u.uid)), (q) => { S.appr = q.docs.map((d) => ({ id: d.id, ...d.data() })); render(); });
   on(query(collection(fs, 'notifications'), where('toUid', 'in', adm ? [u.uid, 'admin'] : [u.uid]), orderBy('at', 'desc'), limit(50)), (q) => { S.nt = q.docs.map((d) => ({ id: d.id, ...d.data() })); render(); });
   A.refresh();
