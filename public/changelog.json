@@ -1,0 +1,47 @@
+[
+ {
+  "v": "2.2.0",
+  "date": "2026-10-10",
+  "notes": [
+   "Alur penerbitan dinamis per layanan: 'Admin cek ulang lalu terbitkan' atau 'Terbit otomatis' (jeda menit, hanya pemohon terverifikasi, tahan per permintaan).",
+   "Checklist penandatangan dinamis: siapa saja, wajib/tidak, urutan (paralel/berjenjang), mode Manual (pejabat login & menandatangani digital) atau Otomatis (delegasi tanda tangan gambar yang diaktifkan pejabat).",
+   "Setiap tanda tangan manual terikat hash isi surat; penandatangan terakhir menerbitkan. Penandatangan tampil di surat PDF/HTML, riwayat, dan halaman verifikasi.",
+   "Penerbit otomatis (sesi admin yang terbuka) menggantikan server pada paket Spark."
+  ]
+ },
+ {
+  "v": "2.1.0",
+  "date": "2026-10-10",
+  "notes": [
+   "Ekspor & Cadangan massal: PDF asli (dibuat ulang, hash dicocokkan dengan rantai) ke ZIP atau langsung ke Google Drive admin, per Tahun/Bulan/Layanan, plus indeks.csv dan bukti rantai; mode 'baru sejak ekspor terakhir' dengan progres tersimpan.",
+   "Cadangan data JSON ke Google Drive (OAuth lewat Firebase Auth, scope drive.file).",
+   "Template: konversi Word/ODT -> PDF lewat Google Drive; ukuran template hingga ±2,4 MB (dipecah); template & versinya tidak dapat diubah/dihapus.",
+   "Salinan HTML mandiri tiap surat (dibuat ulang atau disimpan ≤150 KB) dan tombol 'Lihat HTML'.",
+   "Pengaturan penyimpanan: Ringkas / Ringkas + HTML / Arsip."
+  ]
+ },
+ {
+  "v": "2.0.0",
+  "date": "2026-10-10",
+  "notes": [
+   "Paket Firebase Spark (gratis): tanpa Cloud Functions & Storage; aturan bisnis dipindah ke aturan Firestore + logika di browser.",
+   "Persetujuan & tanda tangan oleh pejabat yang login sendiri; kunci ECDSA P-256 per perangkat, kunci publik terdaftar.",
+   "Setiap surat dicatat ke rantai hash SHA-256 (append-only) beserta tanda tangan digital; halaman verifikasi (kode/QR/unggah PDF) dan verifikator offline.",
+   "Penyimpanan ringkas: simpan data + hash, PDF dibuat ulang deterministik saat diunduh (opsi arsip PDF terkompresi).",
+   "Template PDF disimpan di Firestore dengan riwayat versi; tema warna-warni, pilihan aksen, mode terang/gelap.",
+   "Daftar 'perlu perhatian' menggantikan pengingat terjadwal; cadangan manual + skrip pemulihan."
+  ]
+ },
+ {
+  "v": "1.0.0",
+  "date": "2026-10-09",
+  "notes": [
+   "Rilis awal versi Firebase: 4 role (Admin Super, Admin, Klien, Tamu), login Google/email, antrean & prioritas.",
+   "Durasi per tahap (Diajukan, Diproses, Menunggu Konfirmasi, Selesai/Dibatalkan); timer berhenti saat selesai/dibatalkan.",
+   "Aturan pembatalan: pemohon kapan saja; admin hanya setelah klien tidak menjawab konfirmasi sampai batas waktu.",
+   "Template PDF (AcroForm / penempatan koordinat) dengan riwayat versi template dan rollback.",
+   "Tanda tangan: gambar langsung, unggah, atau pakai tersimpan; nama & jabatan dapat diubah; QR verifikasi keaslian.",
+   "Riwayat versi surat (revisi), audit log, cadangan manual & mingguan, pemulihan, pengaturan pengguna & aplikasi, panduan."
+  ]
+ }
+]

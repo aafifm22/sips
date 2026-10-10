@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Layanan Surat</title>
+<link rel="stylesheet" href="styles.css">
+<script type="importmap">
+{ "imports": {
+  "firebase/app": "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js",
+  "firebase/auth": "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js",
+  "firebase/firestore": "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js",
+  "firebase/functions": "https://www.gstatic.com/firebasejs/10.14.1/firebase-functions.js",
+  "firebase/storage": "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js"
+} }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+<header><span class="logo" id="brand">📮 Layanan Surat</span><span class="sp"></span><span id="who"></span></header>
+<nav id="nav"></nav>
+<main id="app"><p class="mu">Memuat…</p></main>
+<footer id="foot"></footer>
+<div id="md"></div>
+<script type="module" src="main.js"></script>
+</body>
+</html>

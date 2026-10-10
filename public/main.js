@@ -1,0 +1,123 @@
+import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut, updateProfile } from 'firebase/auth';
+import { doc, onSnapshot, collection, query, where, orderBy, limit } from 'firebase/firestore';
+import { auth, fs, S, F, $, esc, run, hook, isAdm, isSup } from './core.js';
+import './api.js';
+import { homeV, ajukanV, mineV, lacakV, notifV, dashV } from './user.js';
+import { queueV, fbV, svcV, usersV, settingsV, auditV, approveV, ledgerV, attentionV, checklistV } from './admin.js';
+import { verifyV } from './verify.js';
+import { exportV } from './export.js';
+import { applyTheme } from './theme.js';
+
+const A = (window.A = window.A || {});
+let CL = [], loginMode = 'in', dataUnsub = [], dataKey = '';
+
+/* ---------- navigasi ---------- */
+const isOff = () => !!(S.p && S.p.signer);
+function tabs() {
+  const T = [['verif', '🔎 Verifikasi'], ['guide', 'Panduan'], ['ver', 'Versi']];
+  if (!S.user) return [['ajukan', 'Ajukan Surat'], ['mine', 'Permintaan Saya'], ['lacak', 'Lacak dengan Kode'], ...T];
+  if (isAdm()) return [['dash', 'Dashboard'], ['queue', 'Antrean'], ...(isOff() ? [['appr', '✍ Persetujuan']] : []), ['svc', 'Layanan'], ['users', 'Pengguna'], ['fb', 'Feedback'], ['ledger', '🔐 Rantai & TTD'], ['export', '📦 Ekspor & Cadangan'], ['notif', 'Notifikasi'], ['set', 'Pengaturan'], ...(isSup() ? [['audit', 'Audit']] : []), ...T];
+  return [['home', 'Beranda'], ['ajukan', 'Ajukan Surat'], ['mine', 'Permintaan Saya'], ['dash', 'Dashboard Saya'], ...(isOff() ? [['appr', '✍ Persetujuan'], ['ledger', '🔐 Kunci TTD']] : []), ['notif', 'Notifikasi'], ['set', 'Pengaturan'], ...T];
+}
+A.nav = (v) => { S.view = v; if (v === 'audit') A.loadAudit(); if (v === 'ledger') A.loadLedger(); if (v === 'export') A.loadExport(); if (location.hash.startsWith('#/v/')) location.hash = ''; render(); scrollTo(0, 0); };
+A.logout = () => signOut(auth);
+A.claim = async () => { if (confirm('Jadikan akun ini Admin Super? Hanya bisa dilakukan SEKALI, oleh orang pertama yang mengklaim.') && await run(() => F.claimSuper())) alert('Anda kini Admin Super.'); };
+A.moreClosed = () => { S.closedLimit += 300; startData(); };
+
+/* ---------- login ---------- */
+function loginV() {
+  const reg = loginMode === 'up';
+  return `<div class="card"><h2>${reg ? 'Daftar akun' : 'Masuk'}</h2><button class="btn" onclick="A.google()">G &nbsp;Masuk dengan Google</button>
+  <p class="mu" style="margin-top:14px">atau dengan email</p>${reg ? '<input id="l_name" placeholder="Nama lengkap">' : ''}<input id="l_email" type="email" placeholder="Email"><input id="l_pass" type="password" placeholder="Kata sandi (min. 6 karakter)">
+  <div class="row"><button class="btn" onclick="A.emailAuth()">${reg ? 'Daftar' : 'Masuk'}</button><button class="btn g" onclick="A.mode('${reg ? 'in' : 'up'}')">${reg ? 'Sudah punya akun' : 'Buat akun baru'}</button>${reg ? '' : '<button class="btn g s" onclick="A.reset()">Lupa sandi</button>'}</div></div>
+  <div class="card"><h3>Tanpa login (Tamu)</h3><p class="mu">Anda tetap dapat mengajukan surat dan melacaknya dengan kode + email.</p><button class="btn g" onclick="A.nav('ajukan')">Ajukan surat sebagai tamu</button></div>`;
+}
+Object.assign(A, {
+  mode(m) { loginMode = m; S.view = 'login'; render(); },
+  google: () => run(() => signInWithPopup(auth, new GoogleAuthProvider())),
+  emailAuth: () => run(async () => {
+    const e = $('#l_email').value.trim(), p = $('#l_pass').value;
+    if (loginMode === 'up') { const c = await createUserWithEmailAndPassword(auth, e, p); const n = $('#l_name').value.trim(); if (n) await updateProfile(c.user, { displayName: n }); } else await signInWithEmailAndPassword(auth, e, p);
+  }),
+  reset: () => run(async () => { const e = $('#l_email').value.trim(); if (!e) return alert('Isi email dulu'); await sendPasswordResetEmail(auth, e); alert('Tautan reset sandi dikirim ke email.'); }),
+});
+
+/* ---------- panduan & versi ---------- */
+function md(t) {
+  const inl = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`(.+?)`/g, '<code>$1</code>');
+  let out = '', ul = false;
+  for (const l of t.split('\n')) {
+    const li = /^\s*[-*] (.*)/.exec(l);
+    if (li) { if (!ul) { out += '<ul>'; ul = true; } out += `<li>${inl(li[1])}</li>`; continue; }
+    if (ul) { out += '</ul>'; ul = false; }
+    const h = /^(#{1,3}) (.*)/.exec(l);
+    out += h ? `<h${h[1].length}>${inl(h[2])}</h${h[1].length}>` : l.trim() ? `<p>${inl(l)}</p>` : '';
+  }
+  return out + (ul ? '</ul>' : '');
+}
+let guide = null;
+async function guideV() { if (guide == null) { try { guide = md(await (await fetch('docs/panduan.md')).text()); } catch (e) { guide = '<p>Panduan tidak dapat dimuat.</p>'; } } return `<div class="card guide">${guide}</div>`; }
+const verV = () => `<div class="card"><h2>Versi aplikasi & riwayat perubahan</h2>${CL.map((c, i) => `<div class="item"><b>v${c.v}</b> ${i === 0 ? '<span class="tag ok">terpasang</span>' : ''} <span class="mu">${c.date}</span><ul>${c.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></div>`).join('')}</div>`;
+
+/* ---------- render ---------- */
+async function render() {
+  if (!S.ready) return;
+  const un = S.nt.filter((n) => !n.read).length;
+  $('#brand').textContent = '📮 ' + (S.set.instName || 'Layanan Surat');
+  $('#who').innerHTML = `<button class="btn g s" onclick="A.themeM()" title="Tema & warna">🎨</button> ` + (S.user ? `<span class="mu">${esc(S.p ? S.p.name : '')} · ${esc(S.p ? S.p.role : '')}${S.p && S.p.role === 'klien' ? ' · ' + esc(S.p.status) + (S.p.verified ? '' : ' (belum verifikasi)') : ''}${isOff() ? ' · pejabat' : ''}</span> ${un ? `<span class="tag er">🔔 ${un}</span>` : ''} <button class="btn g s" onclick="A.logout()">Keluar</button>` : '<button class="btn s" onclick="A.mode(\'in\')">Masuk</button>');
+  if (location.hash.startsWith('#/v/')) S.view = 'verif';
+  const t = tabs();
+  if (!t.some((x) => x[0] === S.view) && !['login'].includes(S.view)) S.view = S.user ? (isAdm() ? 'dash' : 'home') : 'ajukan';
+  $('#nav').innerHTML = t.map(([k, l]) => `<button class="${S.view === k ? 'on' : ''}" onclick="A.nav('${k}')">${l}</button>`).join('');
+  const code = location.hash.startsWith('#/v/') ? decodeURIComponent(location.hash.slice(4)) : '';
+  const views = { home: homeV, ajukan: ajukanV, mine: mineV, lacak: lacakV, dash: () => (isAdm() ? checklistV() + attentionV() : '') + dashV(), queue: queueV, svc: svcV, users: usersV, fb: fbV, notif: notifV, set: settingsV, audit: auditV, appr: approveV, ledger: ledgerV, export: exportV, verif: () => verifyV(code), guide: guideV, ver: verV, login: loginV };
+  const claim = S.user && S.metaSuper === false ? '<div class="card" style="border-left:4px solid var(--wa)"><b>Belum ada Admin Super.</b> Jika Anda pemilik/pengelola aplikasi ini, klaim sekarang (sekali saja).<br><button class="btn s" onclick="A.claim()">Jadikan saya Admin Super</button></div>' : '';
+  $('#app').innerHTML = claim + await views[S.view]();
+  $('#foot').textContent = `Layanan Surat v${CL[0] ? CL[0].v : ''} · ${S.set.instName || ''}`;
+}
+hook.render = render;
+window.addEventListener('hashchange', render);
+
+/* ---------- data realtime (hemat baca: hanya yang dibutuhkan) ---------- */
+function publicSubs() {
+  onSnapshot(doc(fs, 'settings', 'app'), (d) => { S.set = d.data() || {}; applyTheme(); render(); });
+  onSnapshot(collection(fs, 'services'), (q) => { S.sv = q.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name || '').localeCompare(b.name || '')); render(); });
+  onSnapshot(doc(fs, 'meta', 'ledgerHead'), (d) => { S.head = d.exists() ? d.data() : null; render(); }, () => {});
+  onSnapshot(doc(fs, 'meta', 'super'), (d) => { S.metaSuper = d.exists(); render(); }, () => {});
+}
+function startData() {
+  dataUnsub.forEach((f) => f()); dataUnsub = [];
+  const u = S.user, adm = isAdm(), err = (e) => console.error(e), on = (q, fn) => dataUnsub.push(onSnapshot(q, fn, err));
+  if (adm) {
+    const m = { open: [], closed: [] }, merge = () => { S.rq = [...m.open, ...m.closed].sort((a, b) => b.createdAt - a.createdAt); render(); };
+    on(query(collection(fs, 'requests'), where('status', 'in', ['Diajukan', 'Diproses', 'Menunggu Konfirmasi', 'Menunggu Persetujuan'])), (q) => { m.open = q.docs.map((d) => ({ id: d.id, ...d.data() })); merge(); F.sweepQueue(); });
+    on(query(collection(fs, 'requests'), where('status', 'in', ['Selesai', 'Dibatalkan']), orderBy('createdAt', 'desc'), limit(S.closedLimit)), (q) => { m.closed = q.docs.map((d) => ({ id: d.id, ...d.data() })); merge(); });
+    on(collection(fs, 'users'), (q) => { S.users = q.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.name || '').localeCompare(b.name || '')); render(); });
+  } else on(query(collection(fs, 'requests'), where('ownerUid', '==', u.uid), orderBy('createdAt', 'desc')), (q) => { S.rq = q.docs.map((d) => ({ id: d.id, ...d.data() })); render(); A.refresh(); });
+  if (isOff()) on(query(collection(fs, 'requests'), where('approvers', 'array-contains', u.uid)), (q) => { S.appr = q.docs.map((d) => ({ id: d.id, ...d.data() })); render(); });
+  on(query(collection(fs, 'notifications'), where('toUid', 'in', adm ? [u.uid, 'admin'] : [u.uid]), orderBy('at', 'desc'), limit(50)), (q) => { S.nt = q.docs.map((d) => ({ id: d.id, ...d.data() })); render(); });
+  A.refresh();
+}
+A.restart = startData;
+onAuthStateChanged(auth, async (u) => {
+  S.unsub.forEach((f) => f()); S.unsub = []; dataUnsub.forEach((f) => f()); dataUnsub = []; dataKey = '';
+  S.user = u; S.p = null; S.rq = []; S.nt = []; S.users = []; S.appr = []; S.ready = true;
+  if (!u) { S.view = 'ajukan'; applyTheme(); await A.loadGuest(); A.refresh(); render(); return; }
+  try { await F.ensure(); } catch (e) { alert('Gagal memuat profil: ' + e.message); signOut(auth); return; }
+  S.unsub.push(onSnapshot(doc(fs, 'users', u.uid), (d) => {
+    const first = !S.p; S.p = d.data(); applyTheme();
+    const k = [S.p.role, !!S.p.signer, S.p.active].join('|');
+    if (k !== dataKey) { dataKey = k; startData(); if (first) S.view = isAdm() ? 'dash' : 'home'; }
+    render();
+  }));
+});
+
+/* ---------- boot ---------- */
+(async () => {
+  try { CL = await (await fetch('changelog.json')).json(); } catch (e) { CL = []; }
+  publicSubs();
+  setInterval(() => A.refresh(), 120000);
+  // penerbit otomatis (hanya bila diaktifkan admin di perangkat ini)
+  setInterval(() => { if (S.ready && isAdm() && localStorage.getItem('ly-agent') === '1') F.autoRun().then((n) => n && console.log('terbit otomatis:', n)); }, 30000);
+  setInterval(() => { const a = document.activeElement; if (S.ready && !$('#md').innerHTML && !(a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) && ['home', 'mine', 'queue', 'dash', 'appr'].includes(S.view)) render(); }, 60000);
+})();

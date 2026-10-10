@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Verifikasi Offline – Layanan Surat</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;max-width:760px;margin:20px auto;padding:0 14px;color:#1b2130}.c{border:1px solid #e4e7ef;border-radius:12px;padding:14px;margin:12px 0}
+code{font-size:12px;word-break:break-all}.ok{color:#12a150}.er{color:#dc2626}button{background:#4f46e5;color:#fff;border:0;padding:10px 16px;border-radius:10px;font:inherit;cursor:pointer}</style></head><body>
+<h1>🔎 Verifikasi dokumen (offline)</h1>
+<p>Halaman ini <b>mandiri</b>: tidak terhubung ke server mana pun. Verifikasi dilakukan di komputer Anda memakai <i>file bukti rantai</i> (JSON yang diekspor admin) dan PDF yang ingin diperiksa. Simpan salinan bukti rantai secara terpisah dari server agar dapat dijadikan pembanding independen.</p>
+<div class="c"><label>1. Bukti rantai (.json)<br><input type="file" id="bk" accept=".json"></label><br><br><label>2. PDF yang diperiksa (opsional)<br><input type="file" id="pdf" accept=".pdf"></label><br><br><button onclick="go()">Periksa</button></div>
+<div id="out"></div>
+<script>
+const enc=new TextEncoder(),GEN='0'.repeat(64);
+const hex=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
+const sha=async d=>hex(await crypto.subtle.digest('SHA-256',typeof d==='string'?enc.encode(d):d));
+const entryHash=e=>sha([e.seq,e.prevHash,e.docHash,e.recordHash,e.type,e.kid,e.at,e.no,e.serviceId,...(e.soHash?[e.soHash]:[])].join('|'));
+const soMsg=(h,k,at)=>`so|${h}|${k}|${at}`;
+const canon=o=>Array.isArray(o)?'['+o.map(canon).join(',')+']':(o&&typeof o==='object')?'{'+Object.keys(o).sort().map(k=>JSON.stringify(k)+':'+canon(o[k])).join(',')+'}':JSON.stringify(o===undefined?null:o);
+async function soOk(e,keys){if(e.soHash&&await sha(canon(e.signoffs||[]))!==e.soHash)return false;for(const x of e.signoffs||[]){if(x.delegated)continue;const k=keys[x.kid];if(!k||!await sigOk(k.pub,soMsg(x.draftHash,x.key,x.at),x.sig))return false}return true}
+const sigMsg=e=>`${e.seq}|${e.docHash}|${e.no}|${e.at}`;
+const unb=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function sigOk(pub,msg,sig){try{const k=await crypto.subtle.importKey('jwk',pub,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);return await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},k,unb(sig),enc.encode(msg))}catch(e){return false}}
+const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+async function go(){
+  const o=document.getElementById('out');o.innerHTML='Memeriksa…';
+  const f=document.getElementById('bk').files[0];if(!f){o.innerHTML='<p class="er">Pilih file bukti rantai.</p>';return}
+  const j=JSON.parse(await f.text()),L=[...j.ledger].sort((a,b)=>a.seq-b.seq);let prev=GEN,bad=[];
+  for(const e of L){const k=j.keys[e.kid];const ok=e.prevHash===prev&&await entryHash(e)===e.entryHash&&k&&await sigOk(k.pub,sigMsg(e),e.sig)&&await soOk(e,j.keys);if(!ok)bad.push(e.seq);prev=e.entryHash}
+  const headOk=!L.length||(j.head&&j.head.hash===prev&&j.head.seq===L[L.length-1].seq);
+  let h=`<div class="c"><b>Rantai:</b> ${L.length} entri · ${bad.length||!headOk?`<span class="er">TIDAK konsisten (${bad.join(', ')||'kepala tidak cocok'})</span>`:'<span class="ok">konsisten, hash berantai & tanda tangan valid</span>'}<br><span style="font-size:12px">Hash kepala: <code>${esc(j.head&&j.head.hash)}</code></span></div>`;
+  const p=document.getElementById('pdf').files[0];
+  if(p){const d=await sha(new Uint8Array(await p.arrayBuffer())),e=L.find(x=>x.docHash===d);
+    h+=e?`<div class="c"><b class="ok">✅ PDF terdaftar</b><br>Nomor ${esc(e.no)} · ${esc(e.serviceName)} · ${esc(e.signerName)} ${esc(e.signerTitle)}<br>Entri #${e.seq} · ${new Date(e.at).toLocaleString('id-ID')}${(e.signoffs||[]).length?'<br>Penandatangan: '+e.signoffs.map(x=>esc(x.label)+' – '+esc(x.name)+(x.delegated?' (otomatis, delegasi)':' ✓')).join('; '):''}${e.auto?'<br>Diterbitkan otomatis tanpa cek ulang admin.':''}${bad.includes(e.seq)?'<br><b class="er">Namun entri ini bermasalah.</b>':''}<br><code>${d}</code></div>`:`<div class="c"><b class="er">❌ PDF tidak ada di rantai atau telah diubah</b><br><code>${d}</code></div>`}
+  o.innerHTML=h}
+</script></body></html>

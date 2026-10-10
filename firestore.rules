@@ -1,0 +1,245 @@
+rules_version = '2';
+// Paket Spark: tidak ada Cloud Functions. Seluruh aturan bisnis dipaksakan di sini.
+// UJI di Firebase Emulator / Rules Playground sebelum produksi.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signed() { return request.auth != null; }
+    function me() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function active() { return signed() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && me().get('active', true) == true; }
+    function adm() { return active() && me().role in ['admin', 'superadmin']; }
+    function sup() { return active() && me().role == 'superadmin'; }
+    function official() { return active() && me().get('signer', false) == true; }
+    function issuer() { return adm() || official(); }
+    function nowMs() { return request.time.toMillis(); }
+    function near(t) { return t >= nowMs() - 300000 && t <= nowMs() + 300000; }
+    function chg(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+    function svcOf(sid) { return get(/databases/$(database)/documents/services/$(sid)).data; }
+    function confirmDays() { return exists(/databases/$(database)/documents/settings/app) ? get(/databases/$(database)/documents/settings/app).data.get('confirmDays', 3) : 3; }
+    function autoPrio() { return exists(/databases/$(database)/documents/settings/app) ? get(/databases/$(database)/documents/settings/app).data.get('autoPriority', ['Ketua STIKES', 'Waket 1', 'Waket 2']) : ['Ketua STIKES', 'Waket 1', 'Waket 2']; }
+
+    /* ---------- bootstrap Admin Super (sekali saja) ---------- */
+    match /meta/super {
+      allow read: if true;
+      allow create: if signed() && !exists(/databases/$(database)/documents/meta/super)
+        && request.resource.data.uid == request.auth.uid && request.resource.data.keys().hasOnly(['uid', 'at']);
+    }
+
+    /* ---------- pengguna ---------- */
+    match /users/{uid} {
+      allow read: if signed() && (request.auth.uid == uid || adm());
+      allow create: if signed() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name', 'email', 'phone', 'idNumber', 'prodi', 'role', 'status', 'requestedStatus', 'verified', 'active', 'signer', 'signerTitle', 'notifEmail', 'theme', 'accent', 'colorful', 'createdAt'])
+        && request.resource.data.role == 'klien' && request.resource.data.status == 'Mahasiswa'
+        && request.resource.data.verified == false && request.resource.data.active == true && request.resource.data.signer == false
+        && request.resource.data.email == request.auth.token.email.lower();
+      allow update: if
+        // profil sendiri
+        (signed() && request.auth.uid == uid && chg(['name', 'phone', 'idNumber', 'prodi', 'requestedStatus', 'notifEmail', 'theme', 'accent', 'colorful']))
+        // admin: status, verifikasi, aktif (bukan terhadap Admin Super)
+        || (adm() && resource.data.role != 'superadmin' && chg(['status', 'verified', 'active'])
+            && request.resource.data.status in ['Mahasiswa', 'Dosen', 'Tendik', 'Ketua STIKES', 'Waket 1', 'Waket 2'])
+        // Admin Super: role & hak pejabat penandatangan pada akun lain
+        || (sup() && request.auth.uid != uid && chg(['role', 'signer', 'signerTitle', 'status', 'verified', 'active'])
+            && request.resource.data.role in ['klien', 'admin', 'superadmin'])
+        // Admin Super: hak pejabat untuk dirinya sendiri
+        || (sup() && request.auth.uid == uid && chg(['signer', 'signerTitle']))
+        // klaim Admin Super pertama (satu batch dengan pembuatan meta/super)
+        || (signed() && request.auth.uid == uid && chg(['role']) && request.resource.data.role == 'superadmin'
+            && !exists(/databases/$(database)/documents/meta/super)
+            && existsAfter(/databases/$(database)/documents/meta/super)
+            && getAfter(/databases/$(database)/documents/meta/super).data.uid == request.auth.uid);
+    }
+
+    /* ---------- konfigurasi publik ---------- */
+    match /settings/{d} { allow read: if true; allow write: if sup(); }
+    match /services/{id} {
+      allow read: if true;
+      allow write: if adm();
+      match /versions/{v} { allow read, write: if adm(); }
+    }
+    // Template tidak dapat diubah/dihapus (versi baru = dokumen baru) agar surat lama selalu dapat dibuat ulang.
+    match /templates/{id} { allow read: if true; allow create: if adm(); allow update, delete: if false; }
+    // Penanda ekspor/cadangan (Google Drive)
+    match /exports/{id} { allow read, write: if adm(); }
+    match /signatures/{sha} {
+      allow read: if true;
+      allow create: if issuer() && request.resource.data.uid == request.auth.uid && request.resource.data.png.size() < 120000;
+    }
+    match /publicKeys/{kid} {
+      allow read: if true;
+      allow create: if issuer() && request.resource.data.uid == request.auth.uid;
+      allow update: if signed() && (adm() || resource.data.uid == request.auth.uid) && chg(['active']) && request.resource.data.active == false;
+    }
+    // Delegasi tanda tangan otomatis: hanya pejabat bersangkutan yang membuat/mengubahnya (dapat dinonaktifkan kapan saja)
+    match /delegations/{id} {
+      allow read: if issuer() || (signed() && resource.data.uid == request.auth.uid);
+      allow create, update: if official() && request.resource.data.uid == request.auth.uid && id == request.auth.uid + '_' + request.resource.data.sid
+        && request.resource.data.keys().hasOnly(['uid', 'sid', 'sigSha', 'name', 'title', 'active', 'at']);
+      allow delete: if false;
+    }
+    match /counters/{k} {
+      allow read: if adm();
+      allow create: if issuer() && request.resource.data.n == 1;
+      allow update: if issuer() && request.resource.data.n == resource.data.n + 1;
+    }
+    match /stats/{sid} {
+      allow read: if true;
+      allow create: if issuer() && request.resource.data.n == 1;
+      allow update: if issuer() && chg(['n', 'p', 't', 'w']) && request.resource.data.n == resource.data.n + 1;
+    }
+
+    /* ---------- rantai hash (append-only) ---------- */
+    match /meta/ledgerHead {
+      allow read: if true;
+      allow create: if sup() && request.resource.data.seq == 0;
+      allow update: if issuer() && request.resource.data.seq == resource.data.seq + 1
+        && existsAfter(/databases/$(database)/documents/ledger/$(string(request.resource.data.seq)))
+        && getAfter(/databases/$(database)/documents/ledger/$(string(request.resource.data.seq))).data.entryHash == request.resource.data.hash;
+    }
+    match /ledger/{seq} {
+      allow read: if true;
+      allow create: if issuer() && request.resource.data.seq == int(seq)
+        && request.resource.data.seq == get(/databases/$(database)/documents/meta/ledgerHead).data.seq + 1
+        && request.resource.data.prevHash == get(/databases/$(database)/documents/meta/ledgerHead).data.hash
+        && getAfter(/databases/$(database)/documents/meta/ledgerHead).data.hash == request.resource.data.entryHash
+        && request.resource.data.signerUid == request.auth.uid && near(request.resource.data.at)
+        && getAfter(/databases/$(database)/documents/requests/$(request.resource.data.rid)).data.letter.seq == request.resource.data.seq;
+      allow update, delete: if false;
+    }
+    match /hashes/{h} {
+      allow read: if true;
+      allow create: if issuer() && request.resource.data.status == 'valid'
+        && existsAfter(/databases/$(database)/documents/ledger/$(string(request.resource.data.seq)));
+      allow update: if issuer() && chg(['status', 'supersededBy']) && request.resource.data.status == 'superseded';
+    }
+    match /codes/{c} {
+      allow read: if true;
+      allow create: if issuer() && existsAfter(/databases/$(database)/documents/ledger/$(string(request.resource.data.seq)));
+    }
+
+    /* ---------- cermin antrean publik (tanpa data pribadi) ---------- */
+    match /queuePub/{id} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['pr', 't', 'ownerUid'])
+        && existsAfter(/databases/$(database)/documents/requests/$(id))
+        && request.resource.data.t == getAfter(/databases/$(database)/documents/requests/$(id)).data.createdAt;
+      allow update: if adm() && chg(['pr']);
+      allow delete: if resource == null || adm() || (signed() && resource.data.ownerUid == request.auth.uid);
+    }
+
+    /* ---------- permintaan ---------- */
+    match /requests/{id} {
+      function own() { return signed() && resource.data.ownerUid == request.auth.uid; }
+      function mine() { return own() || resource.data.ownerUid == null; }
+      function histOk() {
+        return request.resource.data.history.size() == resource.data.history.size() + 1
+          && request.resource.data.history[0:resource.data.history.size()] == resource.data.history
+          && request.resource.data.history[resource.data.history.size()].status == request.resource.data.status
+          && near(request.resource.data.history[resource.data.history.size()].at);
+      }
+      function issued() {
+        return request.resource.data.status == 'Selesai' && request.resource.data.endType == 'done'
+          && chg(['status', 'history', 'updatedAt', 'endedAt', 'endType', 'letter', 'approval']) && histOk()
+          && existsAfter(/databases/$(database)/documents/ledger/$(string(request.resource.data.letter.seq)))
+          && getAfter(/databases/$(database)/documents/ledger/$(string(request.resource.data.letter.seq))).data.rid == id;
+      }
+      function validNew() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['code', 'sid', 'sname', 'ownerUid', 'requester', 'data', 'status', 'priority', 'flag', 'slaDays', 'createdAt', 'updatedAt', 'endedAt', 'endType', 'letter', 'feedback', 'draft', 'approval', 'approvers', 'confirm', 'history'])
+          && d.status == 'Diajukan' && d.priority in [0, 1] && d.flag == '' && d.endedAt == null && d.letter == null && d.feedback == null && d.approvers == []
+          && near(d.createdAt) && d.history.size() == 1 && d.history[0].status == 'Diajukan'
+          && id.split('_')[0] == d.code && d.code.matches('^LY-[A-Z0-9]{7}$')
+          && d.requester.name.size() > 0 && d.requester.name.size() <= 120 && d.requester.email.matches('.+@.+') && d.data.size() <= 8
+          && svcOf(d.sid).on == true && d.requester.status in svcOf(d.sid).who
+          && ((d.ownerUid == null && d.requester.status == 'Guest' && d.priority == 0)
+              || (signed() && d.ownerUid == request.auth.uid && d.requester.status == me().status && d.requester.email == me().email
+                  && (d.priority == 0 || (me().verified == true && d.requester.status in autoPrio()))))
+          && existsAfter(/databases/$(database)/documents/queuePub/$(id));
+      }
+
+      // Dokumen tamu hanya dapat dibaca bila ID-nya diketahui (ID = kode + hash email, tidak dapat ditebak).
+      allow get: if resource.data.ownerUid == null || (signed() && (resource.data.ownerUid == request.auth.uid || adm() || request.auth.uid in resource.data.approvers));
+      allow list: if signed() && (resource.data.ownerUid == request.auth.uid || adm() || request.auth.uid in resource.data.approvers);
+      allow create: if validNew();
+      allow delete: if false;
+
+      allow update: if
+        // admin: mulai proses
+        (adm() && resource.data.status == 'Diajukan' && request.resource.data.status == 'Diproses'
+          && chg(['status', 'history', 'updatedAt']) && histOk())
+        // admin: minta konfirmasi klien (batas waktu dipaksa >= pengaturan)
+        || (adm() && resource.data.status in ['Diajukan', 'Diproses'] && request.resource.data.status == 'Menunggu Konfirmasi'
+          && chg(['status', 'history', 'updatedAt', 'confirm']) && histOk()
+          && request.resource.data.confirm.response == null && request.resource.data.confirm.prev == resource.data.status
+          && request.resource.data.confirm.question.size() > 0
+          && request.resource.data.confirm.deadline >= nowMs() + confirmDays() * 86400000 - 120000)
+        // pemohon: masih butuh, lanjutkan
+        || (mine() && resource.data.status == 'Menunggu Konfirmasi' && request.resource.data.status == resource.data.confirm.prev
+          && chg(['status', 'history', 'updatedAt', 'confirm']) && histOk()
+          && request.resource.data.confirm.response == 'lanjut' && request.resource.data.confirm.deadline == resource.data.confirm.deadline)
+        // pemohon: batalkan kapan saja sebelum selesai
+        || (mine() && resource.data.status in ['Diajukan', 'Diproses', 'Menunggu Konfirmasi', 'Menunggu Persetujuan']
+          && request.resource.data.status == 'Dibatalkan' && chg(['status', 'history', 'updatedAt', 'endedAt', 'endType', 'confirm'])
+          && histOk() && request.resource.data.endType == 'user' && near(request.resource.data.endedAt))
+        // admin: batalkan HANYA bila batas konfirmasi lewat tanpa jawaban klien
+        || (adm() && resource.data.status == 'Menunggu Konfirmasi' && resource.data.confirm.response == null
+          && nowMs() > resource.data.confirm.deadline && request.resource.data.status == 'Dibatalkan'
+          && chg(['status', 'history', 'updatedAt', 'endedAt', 'endType']) && histOk()
+          && request.resource.data.endType == 'admin_no_response' && near(request.resource.data.endedAt))
+        // admin: prioritas & flag
+        || (adm() && chg(['priority', 'flag', 'updatedAt']) && request.resource.data.priority in [0, 1])
+        // admin/penerbit otomatis: tahan atau lanjutkan terbit otomatis
+        || (adm() && chg(['autoHold', 'updatedAt']))
+        // admin: simpan draf surat
+        || (adm() && resource.data.status in ['Diajukan', 'Diproses'] && chg(['draft', 'updatedAt']))
+        // admin: kirim ke pejabat untuk disetujui
+        || (adm() && resource.data.status == 'Diproses' && request.resource.data.status == 'Menunggu Persetujuan'
+          && chg(['status', 'history', 'updatedAt', 'approval', 'approvers', 'draft']) && histOk()
+          && svcOf(resource.data.sid).get('needApproval', false) == true
+          && request.resource.data.approvers == svcOf(resource.data.sid).get('approverUids', [])
+          && request.resource.data.approval.state == 'pending')
+        // pejabat: bubuhkan tanda tangan miliknya (tambah tepat satu signoff; penerbitan oleh penandatangan terakhir)
+        || (official() && request.auth.uid in resource.data.approvers && resource.data.status == 'Menunggu Persetujuan'
+          && chg(['approval', 'updatedAt']) && request.resource.data.approval.state == 'pending'
+          && request.resource.data.approval.signoffs.size() == resource.data.approval.signoffs.size() + 1
+          && request.resource.data.approval.signoffs[0:resource.data.approval.signoffs.size()] == resource.data.approval.signoffs
+          && request.resource.data.approval.signoffs[resource.data.approval.signoffs.size()].uid == request.auth.uid)
+        // pejabat: tolak / minta revisi
+        || (official() && request.auth.uid in resource.data.approvers && resource.data.status == 'Menunggu Persetujuan'
+          && request.resource.data.status == 'Diproses' && chg(['status', 'history', 'updatedAt', 'approval', 'approvers']) && histOk())
+        // terbit tanpa persetujuan (admin) / terbit oleh pejabat penyetuju
+        || (adm() && resource.data.status == 'Diproses' && svcOf(resource.data.sid).get('needApproval', false) == false && issued())
+        || (official() && request.auth.uid in resource.data.approvers && resource.data.status == 'Menunggu Persetujuan' && issued())
+        // revisi surat setelah selesai (versi baru + entri rantai baru)
+        || (resource.data.status == 'Selesai' && chg(['letter', 'updatedAt'])
+          && request.resource.data.letter.seq > resource.data.letter.seq
+          && existsAfter(/databases/$(database)/documents/ledger/$(string(request.resource.data.letter.seq)))
+          && ((adm() && svcOf(resource.data.sid).get('needApproval', false) == false)
+              || (official() && request.auth.uid in svcOf(resource.data.sid).get('approverUids', []))))
+        // pemohon: feedback satu kali
+        || (mine() && resource.data.status == 'Selesai' && resource.data.feedback == null && chg(['feedback'])
+          && request.resource.data.feedback.stars in [1, 2, 3, 4, 5]);
+
+      match /letters/{v} {
+        allow get: if get(/databases/$(database)/documents/requests/$(id)).data.ownerUid == null
+          || (signed() && (get(/databases/$(database)/documents/requests/$(id)).data.ownerUid == request.auth.uid || adm()
+              || request.auth.uid in get(/databases/$(database)/documents/requests/$(id)).data.approvers));
+        allow list: if adm();
+        allow create: if issuer() && existsAfter(/databases/$(database)/documents/ledger/$(string(request.resource.data.seq)));
+      }
+    }
+
+    match /notifications/{id} {
+      allow read: if signed() && (resource.data.toUid == request.auth.uid || (resource.data.toUid == 'admin' && adm()));
+      allow create: if request.resource.data.keys().hasOnly(['toUid', 'title', 'body', 'rid', 'at', 'read'])
+        && request.resource.data.read == false && request.resource.data.body.size() <= 400
+        && (request.resource.data.toUid == 'admin' || adm());
+      allow update: if signed() && (resource.data.toUid == request.auth.uid || (resource.data.toUid == 'admin' && adm())) && chg(['read']);
+    }
+    match /audit/{id} {
+      allow read: if sup();
+      allow create: if issuer() && request.resource.data.by == request.auth.uid;
+    }
+  }
+}

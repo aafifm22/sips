@@ -1,0 +1,9 @@
+{
+  "indexes": [
+    { "collectionGroup": "requests", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "ownerUid", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "requests", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "queuePub", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "pr", "order": "ASCENDING" }, { "fieldPath": "t", "order": "ASCENDING" } ] },
+    { "collectionGroup": "notifications", "queryScope": "COLLECTION", "fields": [ { "fieldPath": "toUid", "order": "ASCENDING" }, { "fieldPath": "at", "order": "DESCENDING" } ] }
+  ],
+  "fieldOverrides": []
+}
