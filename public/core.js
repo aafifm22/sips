@@ -18,7 +18,7 @@ export const SPECIAL = { _isi: 'Isi surat (kotak)', _nomor: 'Nomor surat', _tang
 
 export const S = {
   user: null, p: null, set: {}, sv: [], rq: [], nt: [], users: [], stats: {}, queue: {},
-  guest: [], audit: [], signers: [], appr: [], closedLimit: 150, ledger: [], keyReady: false, gauth: null, view: 'home', DF: { sid: '', from: '', to: '' }, unsub: [], draft: {}, sig: {},
+  guest: [], audit: [], signers: [], appr: [], wiz: {}, lc: {}, closedLimit: 150, ledger: [], keyReady: false, gauth: null, view: 'home', DF: { sid: '', from: '', to: '' }, unsub: [], draft: {}, sig: {},
 };
 export const hook = { render() {} };
 
@@ -61,10 +61,12 @@ export function qinfo(r) {
   if (isAdm()) { const q = openQ(); return { pos: q.findIndex((x) => x.id === r.id) + 1, total: q.length }; }
   return r.queue || S.queue[r.id] || null;
 }
-export function modal(h) {
-  $('#md').innerHTML = h ? `<div class="modal" onclick="if(event.target===this)A.close()"><div>${h}</div></div>` : '';
+export function modal(h, foot = '') {
+  $('#md').innerHTML = h ? `<div class="modal" onclick="if(event.target===this)A.close()"><div class="sheet" role="dialog" aria-modal="true"><button class="x" onclick="A.close()" aria-label="Tutup">✕</button>${h}${foot ? `<div class="foot">${foot}</div>` : ''}</div></div>` : '';
+  document.body.classList.toggle('noscroll', !!h);
   setTimeout(() => window.A && window.A.initCv && window.A.initCv(), 0);
 }
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.getElementById('md').innerHTML) modal(''); });
 export const csv = (rows) => '\ufeff' + rows.map((r) => r.map((c) => '"' + String(c ?? '').replace(/"/g, '""') + '"').join(',')).join('\n');
 export function saveFile(name, data, type) {
   const a = document.createElement('a');
@@ -76,9 +78,9 @@ export function saveB64(name, b64, type) {
   for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
   saveFile(name, u, type);
 }
-export const tagOf = (r) => {
+export const tagOf = (r, noStatus) => {
   const c = { Selesai: 'ok', Dibatalkan: 'er', 'Menunggu Konfirmasi': 'wa', 'Menunggu Persetujuan': 'wa', Diproses: 'wa' }[r.status] || '';
-  return `<span class="tag ${c}">${r.status}</span>${r.priority ? '<span class="tag er">🔥 Prioritas</span>' : ''}${r.flag ? `<span class="tag">🚩 ${esc(r.flag)}</span>` : ''}`;
+  return `${noStatus ? '' : `<span class="tag ${c}">${r.status}</span>`}${r.priority ? '<span class="tag er">🔥 Prioritas</span>' : ''}${r.flag ? `<span class="tag">🚩 ${esc(r.flag)}</span>` : ''}`;
 };
 /** Rangkum sekumpulan permintaan: jumlah per status dan rata-rata durasi (hari). */
 export function agg(list) {

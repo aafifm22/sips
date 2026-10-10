@@ -1,5 +1,25 @@
 [
  {
+  "v": "2.3.1",
+  "date": "2026-10-10",
+  "notes": [
+   "Editor Layanan dirapikan: tiap layanan lipat/buka, bagian berlabel, kolom penuh di ponsel; penandatangan sebagai blok berlabel.",
+   "Halaman Pengguna berbentuk kartu (mudah di ponsel) dengan filter 'Perlu verifikasi', pencarian, dan tombol cepat 'Setujui' status yang diajukan.",
+   "Filter dashboard dilipat agar angka ringkasan terlihat lebih dulu."
+  ]
+ },
+ {
+  "v": "2.3.0",
+  "date": "2026-10-10",
+  "notes": [
+   "Navigasi disederhanakan: 3-4 menu utama per peran (bar bawah di ponsel, tab di desktop) + 'Lainnya'; lonceng notifikasi & menu akun di header.",
+   "Beranda pemohon: tombol besar 'Ajukan surat baru', 'Perlu tindakan Anda', 'Sedang berjalan', pintasan layanan. Ajukan surat berlangkah (pilih jenis → isi data → layar sukses dengan kode & tombol salin).",
+   "Beranda admin 'Kerjakan surat': filter (Perlu diproses / Disiapkan / Menunggu pejabat / Menunggu pemohon / Lewat batas / Selesai) dan kartu dengan satu tombol utama.",
+   "Penerbitan surat berlangkah (Periksa → Isi surat → Tanda tangan → Terbitkan) dengan tombol utama tetap di bawah; fitur sekunder disimpan di 'Lainnya'.",
+   "Lembar modal layar penuh di ponsel, tombol & kolom lebih besar (mudah disentuh), kartu permintaan ringkas, istilah teknis disembunyikan dari tampilan utama."
+  ]
+ },
+ {
   "v": "2.2.1",
   "date": "2026-10-10",
   "notes": [

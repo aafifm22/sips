@@ -1,7 +1,7 @@
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut, updateProfile } from 'firebase/auth';
 import { doc, onSnapshot, collection, query, where, orderBy, limit } from 'firebase/firestore';
-import { auth, fs, S, F, $, esc, run, hook, isAdm, isSup } from './core.js';
-import './api.js';
+import { auth, fs, S, F, $, esc, run, hook, isAdm, isSup, modal, svc } from './core.js';
+import { pendingSlots } from './api.js';
 import { homeV, ajukanV, mineV, lacakV, notifV, dashV } from './user.js';
 import { queueV, fbV, svcV, usersV, settingsV, auditV, approveV, ledgerV, attentionV, checklistV } from './admin.js';
 import { verifyV } from './verify.js';
@@ -13,12 +13,28 @@ let CL = [], loginMode = 'in', dataUnsub = [], dataKey = '';
 
 /* ---------- navigasi ---------- */
 const isOff = () => !!(S.p && S.p.signer);
-function tabs() {
-  const T = [['verif', '🔎 Verifikasi'], ['guide', 'Panduan'], ['ver', 'Versi']];
-  if (!S.user) return [['ajukan', 'Ajukan Surat'], ['mine', 'Permintaan Saya'], ['lacak', 'Lacak dengan Kode'], ...T];
-  if (isAdm()) return [['dash', 'Dashboard'], ['queue', 'Antrean'], ...(isOff() ? [['appr', '✍ Persetujuan']] : []), ['svc', 'Layanan'], ['users', 'Pengguna'], ['fb', 'Feedback'], ['ledger', '🔐 Rantai & TTD'], ['export', '📦 Ekspor & Cadangan'], ['notif', 'Notifikasi'], ['set', 'Pengaturan'], ...(isSup() ? [['audit', 'Audit']] : []), ...T];
-  return [['home', 'Beranda'], ['ajukan', 'Ajukan Surat'], ['mine', 'Permintaan Saya'], ['dash', 'Dashboard Saya'], ...(isOff() ? [['appr', '✍ Persetujuan'], ['ledger', '🔐 Kunci TTD']] : []), ['notif', 'Notifikasi'], ['set', 'Pengaturan'], ...T];
+const ICON = { home: '🏠', ajukan: '＋', mine: '📄', dash: '📊', queue: '📥', svc: '🗂', users: '👥', fb: '⭐', ledger: '🔐', export: '📦', notif: '🔔', set: '⚙️', audit: '🧾', appr: '✍️', verif: '🔎', guide: '❓', ver: 'ℹ️', lacak: '🔍' };
+const SHORT = { home: 'Beranda', ajukan: 'Ajukan', mine: 'Permintaan', dash: 'Dashboard', queue: 'Kerjakan', svc: 'Layanan', appr: 'Persetujuan', lacak: 'Lacak' };
+const LONG = { home: 'Beranda', ajukan: 'Ajukan surat baru', mine: 'Permintaan saya', dash: 'Dashboard & laporan', queue: 'Kerjakan surat (antrean)', svc: 'Kelola layanan', users: 'Pengguna & akses', fb: 'Feedback', ledger: 'Tanda tangan digital', export: 'Ekspor & cadangan', notif: 'Notifikasi', set: 'Pengaturan & profil', audit: 'Audit log', appr: 'Persetujuan surat', verif: 'Verifikasi dokumen', guide: 'Panduan penggunaan', ver: 'Versi aplikasi', lacak: 'Lacak dengan kode' };
+/** Menu utama dibatasi (3-4 item) agar tidak membingungkan; sisanya di "Lainnya". */
+function navModel() {
+  const off = isOff();
+  if (!S.user) return { primary: ['ajukan', 'mine', 'lacak'], more: ['verif', 'guide', 'ver'] };
+  if (isAdm()) return { primary: off ? ['queue', 'appr', 'dash', 'svc'] : ['queue', 'dash', 'svc'], more: ['users', 'fb', 'ledger', 'export', 'notif', 'set', ...(isSup() ? ['audit'] : []), 'verif', 'guide', 'ver'] };
+  return { primary: off ? ['home', 'appr', 'ajukan', 'mine'] : ['home', 'ajukan', 'mine'], more: ['dash', ...(off ? ['ledger'] : []), 'notif', 'set', 'verif', 'guide', 'ver'] };
 }
+function badge(k) {
+  let n = 0;
+  if (k === 'queue') n = S.rq.filter((r) => r.status === 'Diajukan').length;
+  else if (k === 'mine') n = S.rq.filter((r) => r.status === 'Menunggu Konfirmasi').length;
+  else if (k === 'appr') n = S.appr.filter((r) => r.status === 'Menunggu Persetujuan' && pendingSlots(r, svc(r.sid)).some((x) => x.uid === S.user.uid)).length;
+  else if (k === 'notif') n = S.nt.filter((x) => !x.read).length;
+  return n ? `<span class="dot">${n > 99 ? '99+' : n}</span>` : '';
+}
+A.more = () => {
+  const { more } = navModel();
+  modal(`<h2>Menu</h2>${S.user ? `<p class="mu">${esc(S.p ? S.p.name : '')} · ${S.p && S.p.role === 'superadmin' ? 'Admin Super' : S.p && S.p.role === 'admin' ? 'Admin' : esc(S.p ? S.p.status : '')}</p>` : ''}<div class="menu">${more.map((k) => `<button onclick="A.close();A.nav('${k}')"><i>${ICON[k]}</i>${LONG[k]}${badge(k)}</button>`).join('')}<button onclick="A.themeM()"><i>🎨</i>Tema & warna</button>${S.user ? '<button onclick="A.close();A.logout()"><i>🚪</i>Keluar</button>' : '<button onclick="A.close();A.mode(\'in\')"><i>👤</i>Masuk / Daftar</button>'}</div>`);
+};
 A.nav = (v) => { S.view = v; if (v === 'audit') A.loadAudit(); if (v === 'ledger') A.loadLedger(); if (v === 'export') A.loadExport(); if (location.hash.startsWith('#/v/')) location.hash = ''; render(); scrollTo(0, 0); };
 A.logout = () => signOut(auth);
 A.claim = async () => { if (confirm('Jadikan akun ini Admin Super? Hanya bisa dilakukan SEKALI, oleh orang pertama yang mengklaim.') && await run(() => F.claimSuper())) alert('Anda kini Admin Super.'); };
@@ -62,13 +78,15 @@ const verV = () => `<div class="card"><h2>Versi aplikasi & riwayat perubahan</h2
 /* ---------- render ---------- */
 async function render() {
   if (!S.ready) return;
-  const un = S.nt.filter((n) => !n.read).length;
   $('#brand').textContent = '📮 ' + (S.set.instName || 'Layanan Surat');
-  $('#who').innerHTML = `<button class="btn g s" onclick="A.themeM()" title="Tema & warna">🎨</button> ` + (S.user ? `<span class="mu">${esc(S.p ? S.p.name : '')} · ${S.p && S.p.role === 'superadmin' ? 'Admin Super' : S.p && S.p.role === 'admin' ? 'Admin' : esc(S.p ? S.p.status : '') + (S.p && !S.p.verified ? ' (belum verifikasi)' : '')}${isOff() ? ' · pejabat' : ''}</span> ${un ? `<span class="tag er">🔔 ${un}</span>` : ''} <button class="btn g s" onclick="A.logout()">Keluar</button>` : '<button class="btn s" onclick="A.mode(\'in\')">Masuk</button>');
+  const ini = S.p && S.p.name ? S.p.name.trim()[0].toUpperCase() : '?';
+  $('#who').innerHTML = S.user ? `<button class="ibtn" onclick="A.nav('notif')" aria-label="Notifikasi">🔔${badge('notif')}</button><button class="ibtn av" onclick="A.more()" aria-label="Akun & menu">${esc(ini)}</button>` : '<button class="btn s" onclick="A.mode(\'in\')">Masuk / Daftar</button><button class="ibtn" onclick="A.more()" aria-label="Menu">☰</button>';
   if (location.hash.startsWith('#/v/')) S.view = 'verif';
-  const t = tabs();
-  if (!t.some((x) => x[0] === S.view) && !['login'].includes(S.view)) S.view = S.user ? (isAdm() ? 'dash' : 'home') : 'ajukan';
-  $('#nav').innerHTML = t.map(([k, l]) => `<button class="${S.view === k ? 'on' : ''}" onclick="A.nav('${k}')">${l}</button>`).join('');
+  const { primary, more } = navModel(), all = [...primary, ...more, 'login'];
+  if (!all.includes(S.view)) S.view = S.user ? (isAdm() ? 'queue' : 'home') : 'ajukan';
+  const inMore = more.includes(S.view);
+  $('#nav').innerHTML = primary.map((k) => `<button class="${S.view === k ? 'on' : ''}" onclick="A.nav('${k}')">${SHORT[k]}${badge(k)}</button>`).join('') + `<button class="${inMore ? 'on' : ''}" onclick="A.more()">⋯ Lainnya</button>`;
+  $('#bnav').innerHTML = primary.map((k) => `<button class="${k === 'ajukan' ? 'cta ' : ''}${S.view === k ? 'on' : ''}" onclick="A.nav('${k}')"><i>${ICON[k]}</i>${SHORT[k]}${badge(k)}</button>`).join('') + `<button class="${inMore ? 'on' : ''}" onclick="A.more()"><i>☰</i>Lainnya</button>`;
   const code = location.hash.startsWith('#/v/') ? decodeURIComponent(location.hash.slice(4)) : '';
   const views = { home: homeV, ajukan: ajukanV, mine: mineV, lacak: lacakV, dash: () => (isAdm() ? checklistV() + attentionV() : '') + dashV(), queue: queueV, svc: svcV, users: usersV, fb: fbV, notif: notifV, set: settingsV, audit: auditV, appr: approveV, ledger: ledgerV, export: exportV, verif: () => verifyV(code), guide: guideV, ver: verV, login: loginV };
   const claim = S.user && S.metaSuper === false ? '<div class="card" style="border-left:4px solid var(--wa)"><b>Belum ada Admin Super.</b> Jika Anda pemilik/pengelola aplikasi ini, klaim sekarang (sekali saja).<br><button class="btn s" onclick="A.claim()">Jadikan saya Admin Super</button></div>' : '';
@@ -112,7 +130,7 @@ onAuthStateChanged(auth, async (u) => {
   S.unsub.push(onSnapshot(doc(fs, 'users', u.uid), (d) => {
     const first = !S.p; S.p = d.data(); applyTheme();
     const k = [S.p.role, !!S.p.signer, S.p.active].join('|');
-    if (k !== dataKey) { dataKey = k; startData(); if (first) S.view = isAdm() ? 'dash' : 'home'; }
+    if (k !== dataKey) { dataKey = k; startData(); if (first) S.view = isAdm() ? 'queue' : 'home'; }
     render();
   }));
 });

@@ -1,5 +1,12 @@
 # Panduan Penggunaan Aplikasi Layanan Surat
 
+## 0. Mulai dari mana?
+- **Pemohon (mahasiswa/dosen/tamu)**: **Beranda** → tombol **＋ Ajukan surat baru** → pilih jenis surat → isi data → **Kirim permintaan** → catat **kode** → pantau di **Permintaan** → **⬇ Unduh surat** saat selesai.
+- **Admin**: tab **Kerjakan** → pilih kartu di "Perlu diproses" → **▶ Mulai proses** → **Isi surat** → (**Tanda tangan**) → **Terbitkan**. Hanya 4 langkah, tombol utama selalu di bagian bawah layar.
+- **Pejabat**: tab **Persetujuan** → **Tinjau** → **Setujui** (atau **Tolak** dengan alasan).
+- Menu **Lainnya (☰)** berisi fitur yang jarang dipakai: dashboard, pengguna, pengaturan, ekspor, verifikasi, panduan. Tombol 🔔 di kanan atas membuka notifikasi; tombol bulat berinisial membuka menu akun.
+- Di ponsel, menu utama ada di bar bawah; di komputer berupa tab di atas.
+
 ## 1. Mengenal peran
 - **Tamu**: tanpa login. Mengajukan surat (nama, kontak, email, data sesuai jenis) dan melacak dengan **kode + email**. Simpan keduanya.
 - **Pengguna terdaftar** (status: Mahasiswa, Dosen, Tendik, Ketua STIKES, Waket 1, Waket 2): login Google/email. Melihat semua permintaannya, posisi antrean, durasi tiap tahap, dan mengunduh surat.
@@ -35,7 +42,7 @@ Di **Layanan > Alur penerbitan & penandatangan** (Admin):
   - **Otomatis (delegasi)**: gambar tanda tangan pejabat dibubuhkan otomatis, hanya jika pejabat mengaktifkan delegasi di **🔐 Kunci TTD** (dapat dinonaktifkan). Surat dan rantai mencatat "atas delegasi".
 - Checklist kosong = tanpa pejabat; surat memakai nama bawaan layanan dan diterbitkan admin.
 - Pemohon dan admin melihat checklist (✅ sudah, ⬜ menunggu, 🖋 otomatis) pada setiap permintaan.
-- **Penerbit otomatis**: di **Antrean**, aktifkan "Penerbit otomatis" pada satu komputer kantor yang menyala dan login sebagai admin (kunci tanda tangan terdaftar). Spark tidak punya server, jadi tab/browser itu harus tetap terbuka. Tanpa penerbit aktif, permintaan menunggu di antrean seperti biasa.
+- **Penerbit otomatis**: di **Kerjakan (antrean)**, aktifkan "Penerbit otomatis" pada satu komputer kantor yang menyala dan login sebagai admin (kunci tanda tangan terdaftar). Spark tidak punya server, jadi tab/browser itu harus tetap terbuka. Tanpa penerbit aktif, permintaan menunggu di antrean seperti biasa.
 - Template PDF: pada **Atur penempatan** tersedia kunci TTD/Nama/Jabatan **per penandatangan**.
 
 ## 5. Pejabat: menyetujui dan menandatangani

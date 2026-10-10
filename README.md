@@ -13,4 +13,6 @@ Mulai dari **docs/DEPLOY-SPARK.md**. Baca **docs/KEAMANAN.md** untuk batasan.
 
 Fitur: Tamu, Pengguna, Admin, Admin Super + pejabat penyetuju · antrean & prioritas · durasi per tahap · konfirmasi/pembatalan berbatas aturan · template PDF identik (AcroForm/koordinat, versi) · persetujuan & tanda tangan digital (ECDSA) · rantai hash SHA-256 + verifikasi (kode/QR/unggah PDF/offline) · penyimpanan ringkas + salinan HTML · ekspor massal ZIP/Google Drive · Word→PDF via Drive · dashboard terfilter + CSV · feedback · audit · tema warna-warni.
 
-**Status pengujian**: sintaks semua modul, pembuat PDF (deterministik), hash/rantai/tanda tangan diuji lokal. **Aturan Firestore dan alur end-to-end belum diuji pada project Firebase nyata.**
+**Antarmuka**: mobile-first (bar bawah di ponsel), alur berlangkah untuk pengajuan dan penerbitan surat.
+
+**Status pengujian**: sintaks semua modul, pembuat PDF (deterministik), hash/rantai/tanda tangan, serta tampilan & alur penerbitan→unduh→verifikasi diuji di browser dengan Firebase tiruan (data contoh). **Aturan Firestore dan alur end-to-end belum diuji pada project Firebase nyata.**

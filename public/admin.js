@@ -1,4 +1,4 @@
-import { S, F, fs, $, esc, fdate, run, stages, modal, saveFile, tagOf, svc, isAdm, isSup, openQ, QUEUE, DAY, FL, SPECIAL, WHO, STATUS_ALL, STATUS_SELF, hook, flowOf } from './core.js';
+import { S, F, fs, $, esc, fd, fdate, run, stages, modal, saveFile, tagOf, svc, isAdm, isSup, openQ, QUEUE, DAY, FL, SPECIAL, WHO, STATUS_ALL, STATUS_SELF, hook, flowOf } from './core.js';
 import { reqCard, stageTable, stepper, signChecklist, combo } from './user.js';
 import { doc, getDoc, setDoc, updateDoc, addDoc, deleteDoc, collection, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
 import { putSig, tplBytes, ensureKey, hasKey, cfg, pendingSlots } from './api.js';
@@ -9,18 +9,30 @@ const fill = (body, data) => String(body || '').replace(/\{(\w+)\}/g, (_, k) => 
 const log = (action, target, detail) => F.audit({ action, target, detail }).catch(() => {});
 
 /* ---------- Antrean, perhatian, checklist ---------- */
-function agentCard() {
+function agentInner() {
   const on = localStorage.getItem('ly-agent') === '1', el = S.rq.filter((r) => r.status === 'Diajukan' && flowOf(svc(r.sid)).issue === 'auto');
-  return `<div class="card"><b>🤖 Penerbit otomatis</b> <label class="chk"><input type="checkbox" ${on ? 'checked' : ''} onchange="A.agentToggle(this.checked)">aktif di perangkat ini</label>
-  <p class="mu">Memproses layanan berstatus "Terbit otomatis" tanpa cek ulang admin (sesuai jeda & syarat per layanan). Browser/tab ini harus terbuka dan akun admin harus login. ${el.length ? `<b>${el.length}</b> permintaan menunggu giliran otomatis.` : 'Tidak ada permintaan otomatis yang menunggu.'}</p></div>`;
+  return `<label class="chk"><input type="checkbox" ${on ? 'checked' : ''} onchange="A.agentToggle(this.checked)">Aktif di perangkat ini</label>
+  <p class="mu">Memproses layanan berstatus "Terbit otomatis" tanpa cek ulang admin (sesuai jeda & syarat per layanan). Browser/tab ini harus terbuka dan akun admin login. ${el.length ? `<b>${el.length}</b> permintaan menunggu giliran otomatis.` : 'Tidak ada permintaan otomatis yang menunggu.'}</p>`;
 }
-Object.assign(A, { async agentToggle(on) { if (on) { try { await ensureKey(); } catch (e) { alert(e.message); localStorage.removeItem('ly-agent'); return hook.render(); } } localStorage.setItem('ly-agent', on ? '1' : '0'); if (on) F.autoRun(); hook.render(); } });
+Object.assign(A, { async agentToggle(on) { if (on) { try { await ensureKey(); } catch (e) { alert(e.message); localStorage.removeItem('ly-agent'); return hook.render(); } } localStorage.setItem('ly-agent', on ? '1' : '0'); if (on) F.autoRun(); hook.render(); }, qf(k) { S.qf = k; hook.render(); } });
+/** Beranda admin = "Kerjakan surat": pilih filter, buka kartu, ikuti langkah. */
 export function queueV() {
-  const o = openQ(), w = S.rq.filter((r) => r.status === 'Menunggu Konfirmasi'), p = S.rq.filter((r) => r.status === 'Menunggu Persetujuan'), dn = S.rq.filter((r) => ['Selesai', 'Dibatalkan'].includes(r.status)).slice(0, 15);
-  return `${agentCard()}<div class="card"><h2>Antrean aktif (${o.length})</h2>${o.map((r) => reqCard(r, 1)).join('') || '<p class="mu">Kosong 🎉</p>'}</div>
-  <div class="card"><h2>Menunggu persetujuan pejabat (${p.length})</h2>${p.map((r) => reqCard(r, 1)).join('') || '<p class="mu">Tidak ada.</p>'}</div>
-  <div class="card"><h2>Menunggu konfirmasi pemohon (${w.length})</h2>${w.map((r) => reqCard(r, 1)).join('') || '<p class="mu">Tidak ada.</p>'}</div>
-  <div class="card"><h3>Riwayat terbaru</h3>${dn.map((r) => reqCard(r, 1)).join('')}<button class="btn g s" onclick="A.moreClosed()">Muat riwayat lebih lama</button><p class="mu">Memuat lebih banyak menambah pemakaian kuota baca Firestore (Spark: 50.000 baca/hari).</p></div>`;
+  const now = Date.now(), order = openQ().map((r) => r.id), byQ = (a, b) => order.indexOf(a.id) - order.indexOf(b.id);
+  const G = {
+    new: S.rq.filter((r) => r.status === 'Diajukan').sort(byQ), work: S.rq.filter((r) => r.status === 'Diproses').sort(byQ),
+    appr: S.rq.filter((r) => r.status === 'Menunggu Persetujuan'), wait: S.rq.filter((r) => r.status === 'Menunggu Konfirmasi'),
+    late: S.rq.filter((r) => QUEUE.includes(r.status) && now - r.createdAt > (r.slaDays || svc(r.sid).sla || 3) * DAY),
+    done: S.rq.filter((r) => ['Selesai', 'Dibatalkan'].includes(r.status)),
+  };
+  const f = S.qf || (G.new.length ? 'new' : G.work.length ? 'work' : G.appr.length ? 'appr' : 'new');
+  const chip = ([k, l]) => `<button class="chip ${f === k ? 'on' : ''} ${k === 'late' && G.late.length ? 'alert' : ''}" onclick="A.qf('${k}')">${l}<b>${G[k].length}</b></button>`;
+  const empty = { new: '🎉 Tidak ada permintaan baru.', work: 'Tidak ada surat yang sedang disiapkan.', appr: 'Tidak ada surat yang menunggu pejabat.', wait: 'Tidak ada yang menunggu jawaban pemohon.', late: 'Tidak ada yang melewati batas waktu.', done: 'Belum ada riwayat.' }[f];
+  const list = f === 'done' ? G.done.slice(0, 25) : G[f];
+  return `<h2 style="margin:2px 0 10px">Kerjakan surat</h2>
+  <p class="mu" style="margin:-4px 0 10px">Alur: ① pilih surat teratas → ② ▶ Mulai proses → ③ isi surat & tanda tangan → ④ Terbitkan</p>
+  <div class="chips">${[['new', 'Perlu diproses'], ['work', 'Sedang disiapkan'], ['appr', 'Menunggu pejabat'], ['wait', 'Menunggu pemohon'], ['late', '⏰ Lewat batas'], ['done', 'Selesai / batal']].map(chip).join('')}</div>
+  <div class="card">${list.map((r) => reqCard(r, 1)).join('') || `<p class="mu">${empty}</p>`}${f === 'done' ? '<button class="btn g s" onclick="A.moreClosed()">Muat riwayat lebih lama</button><p class="mu">Memuat lebih banyak menambah pemakaian kuota baca Firestore.</p>' : ''}</div>
+  <details><summary>🤖 Penerbit otomatis (opsional)</summary>${agentInner()}</details>`;
 }
 export function fbV() {
   const l = S.rq.filter((r) => r.feedback);
@@ -58,38 +70,42 @@ const SEED = [
   ['kegiatan', 'Surat Izin Kegiatan Kemahasiswaan', 'IZN-KGT', 4, 'ai', ['nama', 'nim', 'prodi', 'ket'], ['Mahasiswa'], 'Memberi izin kegiatan yang diajukan oleh {nama} ({nim}, {prodi}): {ket}.'],
 ];
 export function svcV() {
-  return `<div class="card"><h2>Kelola Layanan</h2><div class="row"><button class="btn s" onclick="A.addSvc()">+ Tambah layanan</button>${isSup() ? '<button class="btn g s" onclick="A.seedSvc()">Isi layanan awal (11 contoh)</button>' : ''}</div>
+  const MD = { auto: 'Otomatis', template: 'Template', ai: 'Dibantu AI' };
+  return `<div class="card"><h2>Kelola layanan</h2><p class="mu">Ketuk sebuah layanan untuk mengubah pengaturannya.</p><div class="row"><button class="btn" onclick="A.addSvc()">＋ Tambah layanan</button>${isSup() ? '<button class="btn g" onclick="A.seedSvc()">Isi layanan awal (11 contoh)</button>' : ''}</div></div>
   ${S.sv.map((s) => {
-    const t = s.template;
-    return `<div class="item"><div class="row"><input value="${esc(s.name)}" style="flex:3;margin:0" onchange="A.sv('${s.id}','name',this.value)"><input value="${esc(s.code || '')}" placeholder="Kode" style="flex:1;margin:0" onchange="A.sv('${s.id}','code',this.value)">
-    <label>Batas hari<input type="number" min="1" value="${s.sla}" style="width:70px;margin:0 0 0 6px" onchange="A.sv('${s.id}','sla',+this.value)"></label>
-    <select style="width:auto;margin:0" onchange="A.sv('${s.id}','mode',this.value)">${[['auto', 'Otomatis'], ['template', 'Template'], ['ai', 'Dibantu AI']].map(([v, l]) => `<option value="${v}" ${s.mode === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-    <div style="margin-top:6px"><span class="mu">Boleh diajukan oleh:</span> ${WHO.map((w) => `<label class="chk"><input type="checkbox" ${(s.who || []).includes(w) ? 'checked' : ''} onchange="A.tg('${s.id}','who','${w}',this.checked)">${w}</label>`).join('')}</div>
-    <div><span class="mu">Isian formulir:</span> ${Object.keys(FL).map((k) => `<label class="chk"><input type="checkbox" ${(s.fields || []).includes(k) ? 'checked' : ''} onchange="A.tg('${s.id}','fields','${k}',this.checked)">${FL[k]}</label>`).join('')}</div>
-    <div class="row"><label class="chk"><input type="checkbox" ${s.on ? 'checked' : ''} onchange="A.sv('${s.id}','on',this.checked)">Aktif</label><label class="chk"><input type="checkbox" ${s.needSign ? 'checked' : ''} onchange="A.sv('${s.id}','needSign',this.checked)">Perlu TTD</label>
-    <input placeholder="Nama penandatangan bawaan" value="${esc(s.signName || '')}" style="width:190px;margin:0" onchange="A.sv('${s.id}','signName',this.value)"><input placeholder="Jabatan" value="${esc(s.signTitle || '')}" style="width:160px;margin:0" onchange="A.sv('${s.id}','signTitle',this.value)"></div>
+    const t = s.template, f = flowOf(s), n = f.signers.filter((x) => x.required !== false).length;
+    return `<details class="card svc"><summary><b>${esc(s.name)}</b> ${s.on ? '' : '<span class="tag er">nonaktif</span>'}<div class="mu">${MD[s.mode] || s.mode} · maks ${s.sla} hari · ${f.issue === 'auto' ? 'terbit otomatis' : 'dicek admin'} · ${n} penandatangan${t && t.id ? ' · template PDF' : ''}</div></summary>
+    <div class="fg"><div><label>Nama layanan</label><input value="${esc(s.name)}" onchange="A.sv('${s.id}','name',this.value)"></div><div><label>Kode (untuk nomor surat)</label><input value="${esc(s.code || '')}" onchange="A.sv('${s.id}','code',this.value)"></div>
+    <div><label>Batas waktu (hari)</label><input type="number" min="1" inputmode="numeric" value="${s.sla}" onchange="A.sv('${s.id}','sla',+this.value)"></div>
+    <div><label>Cara isi surat dibuat</label><select onchange="A.sv('${s.id}','mode',this.value)">${Object.entries(MD).map(([v, l]) => `<option value="${v}" ${s.mode === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
+    <label class="chk"><input type="checkbox" ${s.on ? 'checked' : ''} onchange="A.sv('${s.id}','on',this.checked)">Layanan aktif (tampil bagi pemohon)</label>
+    <h3 style="margin-top:12px">Siapa yang boleh mengajukan</h3><div>${WHO.map((w) => `<label class="chk"><input type="checkbox" ${(s.who || []).includes(w) ? 'checked' : ''} onchange="A.tg('${s.id}','who','${w}',this.checked)">${w}</label>`).join('')}</div>
+    <h3 style="margin-top:12px">Isian formulir</h3><div>${Object.keys(FL).map((k) => `<label class="chk"><input type="checkbox" ${(s.fields || []).includes(k) ? 'checked' : ''} onchange="A.tg('${s.id}','fields','${k}',this.checked)">${FL[k]}</label>`).join('')}</div>
+    <h3 style="margin-top:12px">Penandatangan bawaan</h3><label class="chk"><input type="checkbox" ${s.needSign ? 'checked' : ''} onchange="A.sv('${s.id}','needSign',this.checked)">Surat memerlukan tanda tangan</label>
+    <div class="fg"><div><label>Nama (bila tanpa checklist pejabat)</label><input value="${esc(s.signName || '')}" onchange="A.sv('${s.id}','signName',this.value)"></div><div><label>Jabatan</label><input value="${esc(s.signTitle || '')}" onchange="A.sv('${s.id}','signTitle',this.value)"></div></div>
     ${flowUI(s)}
-    <label>Template teks isi surat (gunakan {nama}, {nim}, {prodi}, {smt}, {tujuan}, {ket})</label><textarea rows="3" onchange="A.sv('${s.id}','body',this.value)">${esc(s.body || '')}</textarea>
+    <h3 style="margin-top:12px">Teks isi surat</h3><p class="mu">Gunakan {nama}, {nim}, {prodi}, {smt}, {tujuan}, {ket}.</p><textarea rows="4" onchange="A.sv('${s.id}','body',this.value)">${esc(s.body || '')}</textarea>
+    <h3>Template PDF</h3>${t && t.id ? `<p class="mu">Aktif: v${t.version} · ${esc(t.name)} · ${t.mode === 'acroform' ? 'AcroForm' : 'koordinat'}</p>` : '<p class="mu">Belum ada: surat memakai tata letak standar (kop, nomor, tanda tangan, QR).</p>'}
     <div class="row"><label class="btn g s">📄 ${t && t.id ? 'Ganti template PDF' : 'Unggah template PDF'}<input type="file" accept="application/pdf" hidden onchange="A.upTpl('${s.id}',this)"></label><label class="btn g s">📝 Word → PDF (via Google Drive)<input type="file" accept=".docx,.doc,.odt,.rtf" hidden onchange="A.upDoc('${s.id}',this)"></label>
-    ${t && t.id ? `<span class="tag">v${t.version} · ${esc(t.name)} · ${t.mode === 'acroform' ? 'AcroForm' : 'koordinat'}</span><button class="btn s" onclick="A.mapEd('${s.id}')">Atur penempatan</button><button class="btn g s" onclick="A.tplVers('${s.id}')">Riwayat versi</button>` : '<span class="mu">Tanpa template: memakai tata letak surat standar.</span>'}
-    <button class="btn r s" onclick="A.delSvc('${s.id}')">Hapus</button></div></div>`;
-  }).join('')}</div>
-  <div class="card"><h3>Catatan fidelitas PDF (100% mirip unggahan)</h3><p class="mu">Template PDF Anda dipakai sebagai dasar dokumen, bukan digambar ulang. Data diisi lewat field AcroForm (jika PDF punya form) atau ditempel pada koordinat yang Anda tandai pada "Atur penempatan". Font, logo, tabel, dan tata letak asli tetap utuh. Syarat: unggah PDF berkualitas asli (bukan hasil foto), dan tandai posisi tiap isian sekali saja.</p></div>`;
+    ${t && t.id ? `<button class="btn s" onclick="A.mapEd('${s.id}')">Atur penempatan</button><button class="btn g s" onclick="A.tplVers('${s.id}')">Riwayat versi</button>` : ''}</div>
+    <hr style="border:0;border-top:1px solid var(--bd);margin:14px 0"><button class="btn r s" onclick="A.delSvc('${s.id}')">Hapus layanan ini</button></details>`;
+  }).join('')}
+  <div class="card"><h3>Catatan fidelitas PDF (100% mirip unggahan)</h3><p class="mu">Template PDF Anda dipakai sebagai dasar dokumen, bukan digambar ulang. Data diisi lewat field AcroForm (jika PDF punya form) atau ditempel pada koordinat yang Anda tandai pada "Atur penempatan". Font, logo, tabel, dan tata letak asli tetap utuh. Syarat: unggah PDF berkualitas asli (bukan hasil foto) dan tandai posisi tiap isian sekali saja.</p></div>`;
 }
 /* ---------- Alur penerbitan & checklist penandatangan (dinamis per layanan) ---------- */
 function flowUI(s) {
   const f = flowOf(s), id = s.id, sg = S.users.filter((u) => u.signer);
-  const row = (sl) => `<div class="row" style="margin:4px 0"><label class="chk"><input type="checkbox" ${sl.required !== false ? 'checked' : ''} onchange="A.signerSet('${id}','${sl.key}',{required:this.checked})">wajib</label>
-    <input value="${esc(sl.label)}" placeholder="Label (mis. Ketua)" style="width:140px;margin:0" onchange="A.signerSet('${id}','${sl.key}',{label:this.value})">
-    <select style="width:auto;margin:0" onchange="A.signerSet('${id}','${sl.key}',{uid:this.value})"><option value="">— pilih pejabat —</option>${sg.map((u) => `<option value="${u.id}" ${sl.uid === u.id ? 'selected' : ''}>${esc(u.name)}${u.signerTitle ? ' (' + esc(u.signerTitle) + ')' : ''}</option>`).join('')}</select>
-    <select style="width:auto;margin:0" onchange="A.signerSet('${id}','${sl.key}',{mode:this.value})"><option value="manual" ${sl.mode !== 'delegated' ? 'selected' : ''}>Manual: pejabat login & menyetujui</option><option value="delegated" ${sl.mode === 'delegated' ? 'selected' : ''}>Otomatis: delegasi tanda tangan</option></select>
-    <label class="chk">urutan<input type="number" min="1" value="${sl.order || 1}" style="width:56px;margin:0 0 0 4px" onchange="A.signerSet('${id}','${sl.key}',{order:+this.value})"></label><button class="btn r s" onclick="A.signerDel('${id}','${sl.key}')">×</button></div>`;
-  return `<div class="card" style="background:var(--bg)"><b>Alur penerbitan & penandatangan</b>
-  <div class="row"><label class="chk"><input type="radio" name="fi_${id}" ${f.issue === 'admin' ? 'checked' : ''} onchange="A.flow('${id}',{issue:'admin'})">Admin cek ulang lalu terbitkan</label><label class="chk"><input type="radio" name="fi_${id}" ${f.issue === 'auto' ? 'checked' : ''} onchange="A.flow('${id}',{issue:'auto'})">Terbit otomatis (tanpa cek ulang admin)</label></div>
-  ${f.issue === 'auto' ? `<div class="row">Jeda <input type="number" min="0" value="${f.autoDelayMin}" style="width:70px;margin:0" onchange="A.flow('${id}',{autoDelayMin:+this.value})"> menit sebelum diproses <label class="chk"><input type="checkbox" ${f.autoVerifiedOnly ? 'checked' : ''} onchange="A.flow('${id}',{autoVerifiedOnly:this.checked})">hanya pemohon terverifikasi (bukan tamu)</label></div><p class="mu">Berlaku untuk layanan bermode Otomatis/Template. Dijalankan oleh <b>penerbit otomatis</b> di perangkat admin yang menyala (menu Antrean). Admin dapat menahan per permintaan selama jeda.</p>` : ''}
-  <div class="mu" style="margin-top:6px"><b>Checklist penandatangan</b>. Kosong = tanpa pejabat (surat memakai nama bawaan layanan, diterbitkan admin). <i>Manual</i>: pejabat login, meninjau, dan menandatangani digital. <i>Otomatis</i>: tanda tangan gambar pejabat dibubuhkan sesuai delegasi yang ia aktifkan (dicatat di surat). Urutan sama = paralel; urutan berbeda = berjenjang.</div>
-  ${f.signers.map(row).join('') || '<div class="mu">(belum ada penandatangan)</div>'}
-  <button class="btn g s" onclick="A.signerAdd('${id}')">+ Penandatangan</button></div>`;
+  const row = (sl) => `<div class="sgr"><div><label>Label peran</label><input value="${esc(sl.label)}" placeholder="mis. Ketua" onchange="A.signerSet('${id}','${sl.key}',{label:this.value})"></div>
+    <div><label>Pejabat</label><select onchange="A.signerSet('${id}','${sl.key}',{uid:this.value})"><option value="">— pilih pejabat —</option>${sg.map((u) => `<option value="${u.id}" ${sl.uid === u.id ? 'selected' : ''}>${esc(u.name)}${u.signerTitle ? ' (' + esc(u.signerTitle) + ')' : ''}</option>`).join('')}</select></div>
+    <div><label>Cara menandatangani</label><select onchange="A.signerSet('${id}','${sl.key}',{mode:this.value})"><option value="manual" ${sl.mode !== 'delegated' ? 'selected' : ''}>Manual: pejabat login & menyetujui</option><option value="delegated" ${sl.mode === 'delegated' ? 'selected' : ''}>Otomatis: delegasi tanda tangan</option></select></div>
+    <div><label>Urutan (sama = bersamaan)</label><input type="number" min="1" inputmode="numeric" value="${sl.order || 1}" onchange="A.signerSet('${id}','${sl.key}',{order:+this.value})"></div>
+    <div class="row"><label class="chk"><input type="checkbox" ${sl.required !== false ? 'checked' : ''} onchange="A.signerSet('${id}','${sl.key}',{required:this.checked})">Wajib</label><button class="btn r s" onclick="A.signerDel('${id}','${sl.key}')">Hapus</button></div></div>`;
+  return `<div class="card" style="background:var(--bg);margin-top:12px"><b>Alur penerbitan & penandatangan</b>
+  <div style="margin:8px 0"><label class="chk"><input type="radio" name="fi_${id}" ${f.issue === 'admin' ? 'checked' : ''} onchange="A.flow('${id}',{issue:'admin'})">Admin cek ulang lalu terbitkan</label><label class="chk"><input type="radio" name="fi_${id}" ${f.issue === 'auto' ? 'checked' : ''} onchange="A.flow('${id}',{issue:'auto'})">Terbit otomatis (tanpa cek ulang admin)</label></div>
+  ${f.issue === 'auto' ? `<div class="fg"><div><label>Jeda sebelum diproses (menit)</label><input type="number" min="0" inputmode="numeric" value="${f.autoDelayMin}" onchange="A.flow('${id}',{autoDelayMin:+this.value})"></div><div style="align-self:end;margin-bottom:12px"><label class="chk"><input type="checkbox" ${f.autoVerifiedOnly ? 'checked' : ''} onchange="A.flow('${id}',{autoVerifiedOnly:this.checked})">Hanya pemohon terverifikasi (bukan tamu)</label></div></div><p class="mu">Berlaku untuk layanan bermode Otomatis/Template. Dijalankan oleh <b>penerbit otomatis</b> di perangkat admin yang menyala (menu Kerjakan). Admin dapat menahan per permintaan selama jeda.</p>` : ''}
+  <div class="mu"><b>Checklist penandatangan</b>. Kosong = tanpa pejabat (nama bawaan di atas, diterbitkan admin). <i>Manual</i>: pejabat login, meninjau, dan menandatangani digital. <i>Otomatis</i>: gambar tanda tangan pejabat dibubuhkan sesuai delegasi yang ia aktifkan (dicatat di surat). Urutan sama = paralel; berbeda = berjenjang.</div>
+  ${f.signers.map(row).join('') || '<div class="mu" style="margin:8px 0">(belum ada penandatangan)</div>'}
+  <button class="btn g s" onclick="A.signerAdd('${id}')">＋ Penandatangan</button></div>`;
 }
 async function saveFlow(id, flow) {
   const signers = flow.signers.filter((x) => x.required !== false && x.mode !== 'delegated' && x.uid), approverUids = [...new Set(signers.map((x) => x.uid))];
@@ -192,7 +208,8 @@ Object.assign(A, {
 /* ---------- Tanda tangan (gambar) ---------- */
 const keep = (key) => { const d = (S.draft[key] = S.draft[key] || {}); if ($('#lc')) d.content = $('#lc').value; if ($('#sgn')) { d.signName = $('#sgn').value; d.signTitle = $('#sgj').value; } };
 const reopen = (k) => (k.startsWith('ap:') ? A.approve(k.slice(3), S.draft[k] && S.draft[k].revise) : proc(k));
-async function loadSigners() { S.signers = (await getDocs(query(collection(fs, 'signatures'), where('uid', '==', S.user.uid)))).docs.map((d) => ({ id: d.id, ...d.data() })); }
+let sgLoaded = false;
+async function loadSigners() { sgLoaded = true; S.signers = (await getDocs(query(collection(fs, 'signatures'), where('uid', '==', S.user.uid)))).docs.map((d) => ({ id: d.id, ...d.data() })); }
 async function preloadSig(key, sha) { if (!S.sig[key] && sha) { const sd = await getDoc(doc(fs, 'signatures', sha)); if (sd.exists()) S.sig[key] = { sha, url: sd.data().png }; } }
 function sigUI(key, sn, jt, req) {
   const cur = S.sig[key];
@@ -213,7 +230,7 @@ Object.assign(A, {
     c.onpointerup = () => (d = 0);
   },
   cvClear() { const c = $('#cv'); c.getContext('2d').clearRect(0, 0, c.width, c.height); },
-  async sigSet(key, url) { keep(key); const sha = await run(() => putSig(url, (S.draft[key] || {}).signName || S.p.name)); if (sha) { S.sig[key] = { sha, url }; reopen(key); } },
+  async sigSet(key, url) { sgLoaded = false; keep(key); const sha = await run(() => putSig(url, (S.draft[key] || {}).signName || S.p.name)); if (sha) { S.sig[key] = { sha, url }; reopen(key); } },
   sigDraw(key) {
     const c = $('#cv'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let ok = 0;
     for (let i = 3; i < d.length; i += 4) if (d[i]) { ok = 1; break; }
@@ -229,43 +246,60 @@ Object.assign(A, {
 });
 
 /* ---------- Proses surat (admin) ---------- */
+const STP = { cek: 'Periksa', isi: 'Isi surat', ttd: 'Tanda tangan', out: 'Terbitkan' };
 async function proc(id) {
   const r = S.rq.find((x) => x.id === id); if (!r) return;
-  await loadSigners();
-  const s = svc(r.sid), c = r.confirm, now = Date.now(), D = S.draft[id] || {}, dr = r.draft || {};
-  const vs = r.letter ? (await getDocs(query(collection(fs, 'requests', id, 'letters'), orderBy('version', 'desc')))).docs : [], last = vs[0] && vs[0].data();
+  if (!sgLoaded) await loadSigners();
+  const s = svc(r.sid), c = r.confirm, now = Date.now(), dr = r.draft || {};
+  if (!S.lc[id]) S.lc[id] = r.letter ? (await getDocs(query(collection(fs, 'requests', id, 'letters'), orderBy('version', 'desc')))).docs.map((d) => d.data()) : [];
+  const vs = S.lc[id], last = vs[0];
   await preloadSig(id, dr.sigSha || (last && last.rec.sigSha));
-  const content = D.content ?? dr.content ?? (last && last.rec.content) ?? fill(s.body, r.data);
-  const sn = D.signName ?? dr.signerName ?? (last && last.rec.signerName) ?? s.signName ?? S.p.name, jt = D.signTitle ?? dr.signerTitle ?? (last && last.rec.signerTitle) ?? s.signTitle ?? 'Ketua STIKES YKY';
-  const canCancel = r.status === 'Menunggu Konfirmasi' && c && !c.response && now > c.deadline;
-  const editable = ['Diajukan', 'Diproses', 'Selesai'].includes(r.status);
+  const D = (S.draft[id] = S.draft[id] || {});
+  D.content = D.content ?? (dr.content || (last && last.rec.content) || fill(s.body, r.data));
+  D.signName = D.signName ?? (dr.signerName || (last && last.rec.signerName) || s.signName || '');
+  D.signTitle = D.signTitle ?? (dr.signerTitle || (last && last.rec.signerTitle) || s.signTitle || 'Ketua STIKES YKY');
   const fl = flowOf(s), req = fl.signers.filter((x) => x.required !== false), man = req.filter((x) => x.mode !== 'delegated' && x.uid), legacySig = !req.length;
   const direct = !man.length && r.status === 'Diproses', send = man.length > 0 && r.status === 'Diproses', revise = r.status === 'Selesai' && man.length === 0;
-  modal(`<h2>${esc(r.sname)} <span class="mu">${r.code}</span></h2>${tagOf(r)}${stepper(r)}
-  <table>${Object.entries(r.data || {}).map(([k, v]) => `<tr><th>${FL[k] || k}</th><td>${esc(v)}</td></tr>`).join('')}<tr><th>Pemohon</th><td>${esc(r.requester.name)} · ${esc(r.requester.email)} · ${esc(r.requester.phone || '')} · ${esc(r.requester.status)}</td></tr></table>
-  <h3>Durasi tiap tahap</h3>${stageTable(r)}${signChecklist(r)}
-  <div class="card"><h3>Tindakan</h3><div class="row">
-    ${r.status === 'Diajukan' ? `<button class="btn s" onclick="A.act('${id}','process')">▶ Mulai proses</button>` : ''}
+  const canCancel = r.status === 'Menunggu Konfirmasi' && c && !c.response && now > c.deadline;
+  const editable = ['Diajukan', 'Diproses', 'Selesai'].includes(r.status);
+  const head = `<h2>${esc(r.sname)}</h2><div class="mu">${r.code} · ${esc(r.requester.name)} (${esc(r.requester.status)})</div><div style="margin-top:6px">${tagOf(r)}</div>`;
+  const more = `<details><summary>Lainnya: prioritas, flag, konfirmasi, batalkan</summary><div class="row" style="margin:8px 0">
+    ${['Diajukan', 'Diproses', 'Menunggu Konfirmasi'].includes(r.status) ? `<button class="btn s ${r.priority ? 'r' : 'g'}" onclick="A.act('${id}','set_priority')">${r.priority ? 'Turunkan prioritas' : '🔥 Sundul / prioritaskan'}</button>` : ''}
     ${r.status === 'Diajukan' && fl.issue === 'auto' ? `<button class="btn g s" onclick="A.act('${id}','hold')">${r.autoHold ? '▶ Lanjutkan terbit otomatis' : '⏸ Tahan terbit otomatis'}</button>` : ''}
     ${QUEUE.includes(r.status) ? `<button class="btn g s" onclick="A.askConfirm('${id}')">❓ Minta konfirmasi pemohon</button>` : ''}
-    ${['Diajukan', 'Diproses', 'Menunggu Konfirmasi'].includes(r.status) ? `<button class="btn s ${r.priority ? 'r' : ''}" onclick="A.act('${id}','set_priority')">${r.priority ? 'Turunkan prioritas' : '🔥 Sundul / prioritaskan'}</button>` : ''}
     ${r.status === 'Menunggu Konfirmasi' ? `<button class="btn r s" ${canCancel ? '' : 'disabled'} onclick="A.cancelAdm('${id}')">Batalkan (pemohon tidak menjawab)</button>` : ''}</div>
-  ${r.status === 'Menunggu Konfirmasi' ? `<p class="mu">Pertanyaan: ${esc(c.question)} · batas jawaban ${fdate(c.deadline)}. ${c.response ? 'Pemohon menjawab: ' + c.response : canCancel ? 'Batas lewat tanpa jawaban: admin kini boleh membatalkan.' : 'Admin baru boleh membatalkan setelah batas waktu lewat tanpa jawaban pemohon.'}</p>` : '<p class="mu">Admin tidak dapat membatalkan langsung. Gunakan "Minta konfirmasi pemohon"; bila pemohon tidak menjawab sampai batas waktu, permintaan dapat dibatalkan.</p>'}
-  ${r.status === 'Menunggu Persetujuan' ? `<p class="mu">✍ Menunggu persetujuan pejabat. ${r.approval && r.approval.note ? 'Catatan: ' + esc(r.approval.note) : ''}</p>` : r.approval && r.approval.state === 'rejected' ? `<p class="mu" style="color:var(--er)">Pejabat meminta revisi: ${esc(r.approval.note || '-')}</p>` : ''}
-  <div class="row"><input id="flg" placeholder="Flag (mis. Urgent Akreditasi)" value="${esc(r.flag)}" style="flex:1;margin:0"><button class="btn g s" onclick="A.flag('${id}')">Simpan flag</button></div></div>
-  ${editable ? `<div class="card"><h3>Surat ${r.letter ? `· No. ${esc(r.letter.no)} · v${r.letter.version} · rantai #${r.letter.seq}` : ''}</h3>
-    ${s.mode === 'ai' ? `<button class="btn g s" onclick="A.aiDraft('${id}')">✨ Draf dengan AI</button>` : ''}
-    <label>Isi surat ${s.template && s.template.id ? '(ditempel ke template PDF sesuai penempatan)' : ''}</label><textarea id="lc" rows="8">${esc(content)}</textarea>
-    ${legacySig ? sigUI(id, sn, jt, s.needSign) : `<p class="mu">Penandatangan mengikuti checklist alur layanan (di atas). ${man.length ? 'Pejabat manual menandatangani setelah Anda mengirim; penandatangan terakhir menerbitkan.' : 'Tanda tangan otomatis dibubuhkan sesuai delegasi yang aktif.'}</p>`}
-    <label>Catatan (opsional)</label><input id="lnote" placeholder="mis. perbaikan nama">
-    <div class="row"><button class="btn g" onclick="A.prev('${id}')">👁 Pratinjau PDF</button>
-      ${r.status === 'Diproses' ? `<button class="btn g" onclick="A.saveDraft('${id}')">Simpan draf</button>` : ''}
-      ${direct ? `<button class="btn" onclick="A.issue('${id}',false)">✔ Terbitkan & catat ke rantai</button>` : ''}
-      ${send ? `<button class="btn" onclick="A.sendAppr('${id}')">✍ Kirim ke pejabat untuk disetujui</button>` : ''}
-      ${revise ? `<button class="btn" onclick="A.issue('${id}',true)">Terbitkan revisi (versi baru)</button>` : ''}</div>
-    ${r.status === 'Diajukan' ? '<p class="mu">Klik "Mulai proses" dulu sebelum menerbitkan.</p>' : ''}
-    ${vs.length ? `<h3 style="margin-top:12px">Riwayat versi surat</h3><table>${vs.map((d) => { const x = d.data(); return `<tr><td>v${x.version}</td><td>#${x.seq}</td><td>${fdate(x.at)}</td><td>${esc(x.note || '')}</td><td><button class="btn g s" onclick="A.dlL('${id}',${x.version})">Unduh</button> <button class="btn g s" onclick="A.viewHtml('${id}',${x.version})">HTML</button> <a class="btn g s" href="#/v/${x.rec.vcode}" onclick="A.close()">Verifikasi</a></td></tr>`; }).join('')}</table>` : ''}</div>` : ''}
-  <button class="btn g s" onclick="A.close()">Tutup</button>`);
+    <div class="row"><input id="flg" placeholder="Flag (mis. Urgent Akreditasi)" value="${esc(r.flag)}" style="flex:1;margin:0"><button class="btn g s" onclick="A.flag('${id}')">Simpan flag</button></div>
+    <p class="mu">Admin tidak dapat membatalkan langsung: gunakan "Minta konfirmasi pemohon"; bila tidak dijawab sampai batas waktu, barulah dapat dibatalkan.</p></details>`;
+  const dur = `<details><summary>⏱ Durasi tiap tahap · total ${fd(stages(r).total)}</summary>${stageTable(r)}</details>`;
+  const dataT = `<table>${Object.entries(r.data || {}).map(([k, v]) => `<tr><th>${FL[k] || k}</th><td>${esc(v)}</td></tr>`).join('')}<tr><th>Kontak</th><td>${esc(r.requester.email)} · ${esc(r.requester.phone || '')}</td></tr></table>`;
+
+  if (!editable) {  // menunggu konfirmasi / persetujuan / dibatalkan: panel status saja
+    const msg = r.status === 'Menunggu Konfirmasi' ? `<div class="card warn"><b>Menunggu jawaban pemohon</b><div class="mu">Pertanyaan: ${esc(c.question)}<br>Batas jawaban ${fdate(c.deadline)}. ${c.response ? 'Pemohon menjawab: ' + c.response : canCancel ? 'Batas lewat tanpa jawaban: Anda kini boleh membatalkan.' : 'Anda baru boleh membatalkan setelah batas waktu lewat tanpa jawaban.'}</div></div>`
+      : r.status === 'Menunggu Persetujuan' ? `<div class="card warn"><b>✍ Menunggu persetujuan pejabat</b><div class="mu">Pantau checklist di bawah. ${r.approval && r.approval.note ? 'Catatan: ' + esc(r.approval.note) : ''}</div></div>` : '<div class="card"><b>Permintaan dibatalkan.</b></div>';
+    return modal(`${head}${stepper(r)}${signChecklist(r)}${msg}${dataT}${dur}${more}`, '<button class="btn g" onclick="A.close()">Tutup</button>');
+  }
+  const steps = legacySig ? ['cek', 'isi', 'ttd', 'out'] : ['cek', 'isi', 'out'], idx = Math.min(S.wiz[id] ?? (r.status === 'Diproses' ? 1 : 0), steps.length - 1), k = steps[idx], locked = r.status === 'Diajukan';
+  const bar = `<div class="wiz">${steps.map((x, n) => `<button class="${n === idx ? 'on' : n < idx ? 'done' : ''}" ${locked && n > 0 ? 'disabled' : ''} onclick="A.step('${id}',${n})">${n + 1}. ${STP[x]}</button>`).join('')}</div>`;
+  let body = '', foot = '';
+  const next = `<button class="btn" onclick="A.step('${id}',${idx + 1})">Lanjut: ${STP[steps[idx + 1]]} →</button>`, back = idx ? `<button class="btn g back" onclick="A.step('${id}',${idx - 1})">← Kembali</button>` : '';
+  if (k === 'cek') {
+    body = `${stepper(r)}${signChecklist(r)}<div class="card"><b>${r.status === 'Diajukan' ? 'Langkah 1: periksa data pemohon' : r.status === 'Selesai' ? 'Surat sudah terbit' : 'Data sudah dicek'}</b><div class="mu">${r.status === 'Diajukan' ? 'Pastikan data benar, lalu tekan "Mulai proses". Jika data kurang, minta konfirmasi pemohon.' : r.status === 'Selesai' ? `No. ${esc(r.letter ? r.letter.no : '')}. Perlu perbaikan? Gunakan "Revisi surat".` : 'Lanjutkan menyiapkan isi surat.'}</div></div>${dataT}${r.status === 'Diajukan' ? '<div class="row"><button class="btn g s" onclick="A.askConfirm(\'' + id + '\')">❓ Data kurang? Minta konfirmasi pemohon</button></div>' : ''}${dur}${more}`;
+    foot = r.status === 'Diajukan' ? `<button class="btn lg" onclick="A.startProc('${id}')">▶ Mulai proses</button>` : r.status === 'Diproses' ? next : revise ? `<button class="btn" onclick="A.step('${id}',1)">✎ Revisi surat</button><button class="btn g" onclick="A.close()">Tutup</button>` : '<button class="btn g" onclick="A.close()">Tutup</button>';
+  } else if (k === 'isi') {
+    body = `<h3>Isi surat</h3><p class="mu">Periksa dan sesuaikan isi. ${s.template && s.template.id ? 'Akan ditempel ke template PDF layanan ini.' : 'Memakai tata letak surat standar (kop, nomor, tanda tangan, QR).'}</p>${s.mode === 'ai' ? `<button class="btn g s" onclick="A.aiDraft('${id}')">✨ Draf dengan AI</button>` : ''}<textarea id="lc" rows="10">${esc(D.content)}</textarea><button class="btn g" onclick="A.prev('${id}')">👁 Pratinjau PDF</button>`;
+    foot = `${back}${next}`;
+  } else if (k === 'ttd') {
+    body = `${sigUI(id, D.signName, D.signTitle, s.needSign)}<button class="btn g" onclick="A.prev('${id}')">👁 Pratinjau PDF</button>`; foot = `${back}${next}`;
+  } else {
+    const who = legacySig ? `${esc(D.signName || '(tanpa nama)')}${D.signTitle ? ' · ' + esc(D.signTitle) : ''}${(S.sig[id] || {}).sha ? ' · dengan gambar tanda tangan' : ''}` : '';
+    body = `<h3>${revise ? 'Terbitkan revisi' : send ? 'Kirim ke pejabat' : 'Terbitkan surat'}</h3><div class="card"><div><b>Ringkasan</b></div><div class="mu">${r.letter ? 'No. ' + esc(r.letter.no) + ' · versi berikutnya v' + (r.letter.version + 1) : 'Nomor surat dibuat otomatis saat terbit'}${legacySig ? `<br>Penandatangan: ${who}` : ''}</div>${legacySig ? '' : signChecklist(r) || `<div class="mu">Penandatangan sesuai checklist alur layanan: ${req.map((x) => esc(x.label) + (x.mode === 'delegated' ? ' (otomatis)' : '')).join(', ')}.</div>`}</div>
+    <button class="btn g" onclick="A.prev('${id}')">👁 Pratinjau PDF terakhir</button>
+    <label style="display:block;margin-top:10px">Catatan (opsional)</label><input id="lnote" placeholder="mis. perbaikan nama">
+    <p class="mu">${send ? 'Surat dikirim ke pejabat; penandatangan terakhir yang menerbitkannya.' : 'Menerbitkan mencatat dokumen ke rantai hash <b>secara permanen</b> dan menandatanganinya dengan kunci perangkat ini.'}</p>
+    ${vs.length ? `<details><summary>Riwayat versi surat (${vs.length})</summary><table>${vs.map((x) => `<tr><td>v${x.version}</td><td>#${x.seq}</td><td>${fdate(x.at)}</td><td><button class="btn g s" onclick="A.dlL('${id}',${x.version})">Unduh</button> <button class="btn g s" onclick="A.viewHtml('${id}',${x.version})">HTML</button> <a class="btn g s" href="#/v/${x.rec.vcode}" onclick="A.close()">Verifikasi</a></td></tr>`).join('')}</table></details>` : ''}`;
+    foot = `${back}${send ? `<button class="btn lg" onclick="A.sendAppr('${id}')">✍ Kirim ke pejabat</button>` : revise ? `<button class="btn lg" onclick="A.issue('${id}',true)">Terbitkan revisi</button>` : `<button class="btn lg" onclick="A.issue('${id}',false)" ${direct ? '' : 'disabled'}>✔ Terbitkan surat</button>`}`;
+  }
+  modal(`${head}${bar}${locked && idx === 0 ? '' : ''}${body}`, foot);
 }
 async function previewOf(key) {
   const id = key.replace(/^ap:/, ''), r = S.rq.find((x) => x.id === id) || S.appr.find((x) => x.id === id), s = svc(r.sid); keep(key);
@@ -274,6 +308,8 @@ async function previewOf(key) {
 }
 Object.assign(A, {
   proc,
+  step(id, n) { keep(id); S.wiz[id] = n; proc(id); },
+  async startProc(id) { if (await run(() => F.change({ id, action: 'process' }))) { S.wiz[id] = 1; setTimeout(() => proc(id), 500); } },
   async prev(key) { const b = await run(() => previewOf(key)); if (b) window.open(URL.createObjectURL(new Blob([b], { type: 'application/pdf' })), '_blank'); },
   async askConfirm(id) {
     const q = prompt('Tulis pertanyaan/alasan untuk pemohon (mis. "Data kurang lengkap. Apakah surat ini masih Anda perlukan?")'); if (q === null) return;
@@ -287,14 +323,14 @@ Object.assign(A, {
   },
   async sendAppr(id) {
     keep(id); const D = S.draft[id];
-    if (await run(() => F.change({ id, action: 'send_approval', draft: { content: D.content, signerName: D.signName || '', signerTitle: D.signTitle || '', sigSha: (S.sig[id] || {}).sha || null, note: ($('#lnote') || {}).value || '', at: Date.now() } }))) { modal(''); alert('Dikirim ke pejabat penyetuju.'); }
+    if (await run(() => F.change({ id, action: 'send_approval', draft: { content: D.content, signerName: D.signName || '', signerTitle: D.signTitle || '', sigSha: (S.sig[id] || {}).sha || null, note: ($('#lnote') || {}).value || '', at: Date.now() } }))) { modal(''); delete S.wiz[id]; alert('Dikirim ke pejabat penyetuju.'); }
   },
   async issue(id, revise) {
     keep(id); const D = S.draft[id], r = S.rq.find((x) => x.id === id), s = svc(r.sid);
     if (!flowOf(s).signers.length && s.needSign && !(S.sig[id] || {}).sha && !confirm('Layanan ini memerlukan gambar tanda tangan tetapi belum ada. Terbitkan tanpa gambar?')) return;
     if (!confirm('Menerbitkan surat akan mencatat dokumen ke rantai hash secara PERMANEN. Lanjutkan?')) return;
     const o = await run(() => F.issue({ id, content: D.content, signerName: D.signName || '', signerTitle: D.signTitle || '', sigSha: (S.sig[id] || {}).sha || null, note: ($('#lnote') || {}).value || '', revise }));
-    if (o) { modal(''); delete S.sig[id]; delete S.draft[id]; alert(`Surat ${o.no} terbit (rantai #${o.seq}).`); }
+    if (o) { modal(''); delete S.sig[id]; delete S.draft[id]; delete S.wiz[id]; delete S.lc[id]; alert(`Surat ${o.no} terbit (rantai #${o.seq}).`); }
   },
 });
 
@@ -312,14 +348,17 @@ Object.assign(A, {
     let content = D.content ?? dr.content ?? '', last = null;
     if (revise && r.letter) { last = (await getDoc(doc(fs, 'requests', id, 'letters', String(r.letter.version)))).data(); content = D.content ?? last.rec.content; }
     await preloadSig(key, dr.sigSha || (last && last.rec.sigSha));
-    const sn = D.signName ?? (last && last.rec.signerName) ?? dr.signerName ?? S.p.name, jt = D.signTitle ?? (last && last.rec.signerTitle) ?? dr.signerTitle ?? S.p.signerTitle ?? '';
-    modal(`<h2>${revise ? 'Revisi' : 'Persetujuan'}: ${esc(r.sname)} <span class="mu">${r.code}</span></h2>
-    <table>${Object.entries(r.data || {}).map(([k, v]) => `<tr><th>${FL[k] || k}</th><td>${esc(v)}</td></tr>`).join('')}</table>
-    ${signChecklist(r)}<h3>Isi surat</h3>${revise ? `<textarea id="lc" rows="8">${esc(content)}</textarea>` : `<div class="paper">${esc(content)}</div>`}
-    ${dr.note ? `<p class="mu">Catatan admin: ${esc(dr.note)}</p>` : ''}${sigUI(key, sn, jt, true)}
+    const sn = D.signName ?? ((last && last.rec.signerName) || dr.signerName || S.p.name), jt = D.signTitle ?? ((last && last.rec.signerTitle) || dr.signerTitle || S.p.signerTitle || '');
+    const hasSig = !!(S.sig[key] && S.sig[key].sha);
+    modal(`<h2>${revise ? 'Revisi surat' : 'Persetujuan surat'}</h2><div class="mu">${esc(r.sname)} · ${r.code} · ${esc(r.requester.name)}</div>
+    ${signChecklist(r)}
+    <h3 style="margin-top:12px">Isi surat</h3>${revise ? `<textarea id="lc" rows="8">${esc(content)}</textarea>` : `<div class="paper">${esc(content)}</div>`}
+    <details><summary>Data pemohon</summary><table>${Object.entries(r.data || {}).map(([k, v]) => `<tr><th>${FL[k] || k}</th><td>${esc(v)}</td></tr>`).join('')}</table></details>
+    ${dr.note ? `<p class="mu">Catatan admin: ${esc(dr.note)}</p>` : ''}
+    <details ${hasSig ? '' : 'open'}><summary>✍ Tanda tangan & nama ${hasSig ? '(sudah diatur)' : '(belum ada gambar)'}</summary>${sigUI(key, sn, jt, true)}</details>
     <label>Catatan (opsional)</label><input id="lnote">
-    <div class="row"><button class="btn" onclick="A.apprGo('${id}',${!!revise})">✍ ${revise ? 'Terbitkan revisi' : 'Setujui & tanda tangani digital'}</button><button class="btn g" onclick="A.prev('${key}')">👁 Pratinjau PDF</button>${revise ? '' : `<button class="btn r" onclick="A.apprNo('${id}')">Tolak / minta revisi</button>`}<button class="btn g s" onclick="A.close()">Tutup</button></div>
-    <p class="mu">Dengan menyetujui, dokumen diberi tanda tangan digital dari kunci di perangkat ini dan dicatat permanen di rantai hash.</p>`);
+    <p class="mu">Dengan menyetujui, dokumen diberi tanda tangan digital dari kunci di perangkat ini dan dicatat permanen di rantai hash.</p>`,
+    `<button class="btn g back" onclick="A.prev('${key}')" aria-label="Pratinjau PDF">👁</button>${revise ? '' : `<button class="btn r back" onclick="A.apprNo('${id}')">Tolak</button>`}<button class="btn lg" onclick="A.apprGo('${id}',${!!revise})">✍ ${revise ? 'Terbitkan revisi' : 'Setujui'}</button>`);
   },
   async apprGo(id, revise) {
     const key = 'ap:' + id, r = S.appr.find((x) => x.id === id) || S.rq.find((x) => x.id === id), s = svc(r.sid); keep(key);
@@ -388,16 +427,28 @@ Object.assign(A, {
 
 /* ---------- Pengguna ---------- */
 export function usersV() {
-  const sup = isSup();
-  return `<div class="card"><h2>Pengguna & Akses</h2><p class="mu">Status Ketua/Waket hanya dapat diberikan admin. <b>Pejabat</b> (khusus Admin Super) = dapat login sendiri untuk menyetujui & menandatangani surat pada layanan yang menunjuknya.</p><div class="scroll"><table><tr><th>Pengguna</th><th>Role</th><th>Status</th><th>Verif.</th><th>Aktif</th><th>Pejabat</th></tr>
-  ${S.users.map((u) => `<tr><td><b>${esc(u.name)}</b><div class="mu">${esc(u.email)}${u.requestedStatus && u.requestedStatus !== u.status ? `<br>Mengajukan status: ${esc(u.requestedStatus)}` : ''}</div></td>
-  <td><select ${sup && u.id !== S.user.uid ? '' : 'disabled'} onchange="A.usr('${u.id}',{role:this.value})">${[['klien', '—'], ['admin', 'Admin'], ['superadmin', 'Admin Super']].map(([v, l]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
-  <td><select ${(u.role === 'superadmin' && !sup) || (u.id === S.user.uid && !sup) ? 'disabled' : ''} onchange="A.usr('${u.id}',{status:this.value})">${STATUS_ALL.map((r) => `<option ${u.status === r ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
-  <td><input type="checkbox" ${u.verified ? 'checked' : ''} ${(u.role === 'superadmin' && !sup) || (u.id === S.user.uid && !sup) ? 'disabled' : ''} onchange="A.usr('${u.id}',{verified:this.checked})"></td>
-  <td><input type="checkbox" ${u.active !== false ? 'checked' : ''} ${u.id === S.user.uid || (u.role === 'superadmin' && !sup) ? 'disabled' : ''} onchange="A.usr('${u.id}',{active:this.checked})"></td>
-  <td>${sup ? `<input type="checkbox" ${u.signer ? 'checked' : ''} onchange="A.usr('${u.id}',{signer:this.checked})"><input placeholder="Jabatan" value="${esc(u.signerTitle || '')}" style="width:130px" onchange="A.usr('${u.id}',{signerTitle:this.value})">` : u.signer ? '✓ ' + esc(u.signerTitle || '') : '-'}</td></tr>`).join('')}</table></div>
+  const sup = isSup(), f = S.uf || 'all', me = S.user.uid;
+  const flt = { all: () => true, new: (u) => !u.verified, adm: (u) => u.role !== 'klien', off: (u) => u.signer };
+  const chip = (k, l) => `<button class="chip ${f === k ? 'on' : ''} ${k === 'new' && S.users.some(flt.new) ? 'alert' : ''}" onclick="A.uf('${k}')">${l}<b>${S.users.filter(flt[k]).length}</b></button>`;
+  const roleL = (u) => (u.role === 'superadmin' ? 'Admin Super' : u.role === 'admin' ? 'Admin' : '');
+  const card = (u) => {
+    const self = u.id === me, lockSt = (u.role === 'superadmin' && !sup) || (self && !sup);
+    return `<div class="rc urow" data-s="${esc((u.name + ' ' + u.email).toLowerCase())}"><div class="rc-h"><div><b>${esc(u.name)}</b>${self ? ' <span class="mu">(Anda)</span>' : ''}<div class="mu">${esc(u.email)}</div></div>
+    <div>${roleL(u) ? `<span class="tag">${roleL(u)}</span>` : ''}${u.signer ? '<span class="tag ok">Pejabat</span>' : ''}${u.verified ? '' : '<span class="tag wa">belum verifikasi</span>'}${u.active === false ? '<span class="tag er">nonaktif</span>' : ''}</div></div>
+    ${u.requestedStatus && u.requestedStatus !== u.status ? `<div class="mu" style="margin:6px 0">Mengajukan status <b>${esc(u.requestedStatus)}</b> ${lockSt ? '' : `<button class="btn g s" onclick="A.usr('${u.id}',{status:'${u.requestedStatus}',verified:true})">Setujui</button>`}</div>` : ''}
+    <div class="fg" style="margin-top:8px"><div><label>Status</label><select ${lockSt ? 'disabled' : ''} onchange="A.usr('${u.id}',{status:this.value})">${STATUS_ALL.map((r) => `<option ${u.status === r ? 'selected' : ''}>${r}</option>`).join('')}</select></div>
+    <div><label>Peran</label><select ${sup && !self ? '' : 'disabled'} onchange="A.usr('${u.id}',{role:this.value})">${[['klien', 'Pengguna biasa'], ['admin', 'Admin'], ['superadmin', 'Admin Super']].map(([v, l]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
+    <div><label class="chk"><input type="checkbox" ${u.verified ? 'checked' : ''} ${lockSt ? 'disabled' : ''} onchange="A.usr('${u.id}',{verified:this.checked})">Terverifikasi</label><label class="chk"><input type="checkbox" ${u.active !== false ? 'checked' : ''} ${self || (u.role === 'superadmin' && !sup) ? 'disabled' : ''} onchange="A.usr('${u.id}',{active:this.checked})">Aktif</label>
+    ${sup ? `<label class="chk"><input type="checkbox" ${u.signer ? 'checked' : ''} onchange="A.usr('${u.id}',{signer:this.checked})">Pejabat penandatangan</label>` : ''}</div>
+    ${sup && u.signer ? `<label>Jabatan pejabat</label><input value="${esc(u.signerTitle || '')}" placeholder="mis. Ketua STIKES YKY" onchange="A.usr('${u.id}',{signerTitle:this.value})">` : ''}</div>`;
+  };
+  return `<div class="card"><h2>Pengguna & akses</h2><p class="mu">Verifikasi pemohon baru, atur status, dan tunjuk pejabat. Status Ketua/Waket hanya dapat diberikan admin; peran dan hak pejabat hanya Admin Super.</p>
+  <div class="chips">${chip('all', 'Semua')}${chip('new', 'Perlu verifikasi')}${chip('adm', 'Admin')}${chip('off', 'Pejabat')}</div>
+  <input type="search" placeholder="🔍 Cari nama atau email…" oninput="A.userFilter(this.value)">
+  ${S.users.filter(flt[f]).map(card).join('') || '<p class="mu">Tidak ada pengguna di kategori ini.</p>'}
   <p class="mu">Menonaktifkan di sini memblokir akses data aplikasi. Untuk memblokir login sepenuhnya, nonaktifkan akun di Firebase Console > Authentication.</p></div>`;
 }
+Object.assign(A, { uf(k) { S.uf = k; hook.render(); }, userFilter(q) { const k = q.toLowerCase(); document.querySelectorAll('.urow').forEach((e) => { e.style.display = e.dataset.s.includes(k) ? '' : 'none'; }); } });
 A.usr = async (uid, patch) => {
   try { await F.user({ uid, patch }); } catch (e) {
     console.error(e);
