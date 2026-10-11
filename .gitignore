@@ -2,3 +2,14 @@ node_modules
 functions/.env
 .firebase
 *.log
+# --- Rahasia & artefak lokal (jangan commit) ---
+.env*
+*-service-account.json
+sa.json
+serviceAccount*.json
+public/env.local.js
+cadangan*.json
+*backup*.json
+bukti-rantai*.json
+arsip-surat*.zip
+exports/

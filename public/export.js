@@ -1,6 +1,6 @@
 // Ekspor massal (ZIP lokal atau Google Drive milik admin) + konversi Word -> PDF lewat Google Drive.
 // Drive memakai OAuth lewat Firebase Auth (scope drive.file: hanya berkas yang dibuat aplikasi ini).
-import { S, F, fs, auth, $, esc, fdate, run, saveFile, csv, hook } from './core.js';
+import { S, F, fs, auth, $, esc, fdate, run, saveFile, csv, hook, toast } from './core.js';
 import { collection, query, where, orderBy, limit, getDocs, getDoc, doc, setDoc } from 'firebase/firestore';
 import { GoogleAuthProvider, reauthenticateWithPopup, linkWithPopup } from 'firebase/auth';
 import { sha256, unb64 } from './crypto.js';
@@ -72,7 +72,7 @@ async function collect(e) {
 }
 async function expRun() {
   const e = E(); if (e.running) return;
-  if (e.dest === 'drive') { try { await driveToken(); } catch (x) { return alert('Gagal terhubung ke Google Drive: ' + x.message); } }
+  if (e.dest === 'drive') { try { await driveToken(); } catch (x) { return toast('Gagal terhubung ke Google Drive: ' + x.message, 'er'); } }
   Object.assign(e, { running: true, cancel: false, done: 0, total: 0, msg: 'Mengambil daftar surat…', res: null }); hook.render();
   let zip = null, zn = 0, part = 1, bad = 0, lastOk = 0; const rows = [['seq', 'nomor', 'layanan', 'penandatangan', 'tanggal', 'tipe', 'digantikan_oleh_revisi', 'hash_pdf', 'hash_cocok', 'berkas']], files = [];
   const flush = async () => { if (zip && zn) { saveFile(`arsip-surat-${stamp()}-bagian${part++}.zip`, await zip.generateAsync({ type: 'blob', compression: 'STORE' }), 'application/zip'); zip = null; zn = 0; } };
@@ -100,7 +100,7 @@ async function expRun() {
     if (e.dest === 'drive') { await upload(`indeks-${tag}.csv`, idx, 'text/csv', root); if (proof) await upload(`bukti-rantai-${tag}.json`, proof, 'application/json', root); }
     else { zip = zip || new window.JSZip(); zip.file('indeks.csv', idx); if (proof) zip.file('bukti-rantai.json', proof); zn++; await flush(); }
     e.res = { n: files.length, bad, cancelled: e.cancel, dest: e.dest }; e.msg = e.cancel ? 'Dibatalkan.' : 'Selesai.';
-  } catch (x) { e.msg = 'Berhenti: ' + x.message; if (!/Drive/.test(x.message)) alert(x.message); }
+  } catch (x) { e.msg = 'Berhenti: ' + x.message; if (!/Drive/.test(x.message)) toast(x.message, 'er'); }
   finally { await mark().catch(() => {}); e.running = false; A.loadExport(); }
 }
 
@@ -130,13 +130,13 @@ Object.assign(A, {
     S.exportInfo = (await getDoc(doc(fs, 'exports', 'drive')).catch(() => null))?.data() || {}; S.exportBk = (await getDoc(doc(fs, 'exports', 'backup')).catch(() => null))?.data() || {}; hook.render();
   },
   async bkDrive() {
-    try { await driveToken(); } catch (x) { return alert('Gagal terhubung ke Google Drive: ' + x.message); }
+    try { await driveToken(); } catch (x) { return toast('Gagal terhubung ke Google Drive: ' + x.message, 'er'); }
     const o = await run(async () => { const j = (await F.bk()).json, fid = await ensureFolder('Layanan Surat - Cadangan'); await upload(`cadangan-${stamp()}.json`, j, 'application/json', fid); return true; });
-    if (o) { await setDoc(doc(fs, 'exports', 'backup'), { at: Date.now(), by: S.user.uid }); await setDoc(doc(fs, 'settings', 'app'), { lastBackupAt: Date.now() }, { merge: true }).catch(() => {}); alert('Cadangan tersimpan di Google Drive Anda.'); A.loadExport(); }
+    if (o) { await setDoc(doc(fs, 'exports', 'backup'), { at: Date.now(), by: S.user.uid }); await setDoc(doc(fs, 'settings', 'app'), { lastBackupAt: Date.now() }, { merge: true }).catch(() => {}); toast('Cadangan tersimpan di Google Drive Anda.', 'ok'); A.loadExport(); }
   },
   async upDoc(id, inp) {
     const f = inp.files[0]; if (!f) return;
-    try { await driveToken(); } catch (x) { return alert('Gagal terhubung ke Google Drive: ' + x.message); }
+    try { await driveToken(); } catch (x) { return toast('Gagal terhubung ke Google Drive: ' + x.message, 'er'); }
     const pdf = await run(() => docToPdf(f)); if (pdf) await A.saveTpl(id, f.name.replace(/\.[^.]+$/, '') + '.pdf', pdf);
   },
 });

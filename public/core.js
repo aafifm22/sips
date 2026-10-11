@@ -14,7 +14,7 @@ export const STATUS_ALL = ['Mahasiswa', 'Dosen', 'Tendik', 'Ketua STIKES', 'Wake
 export const STATUS_SELF = ['Mahasiswa', 'Dosen', 'Tendik'];
 export const WHO = ['Guest', ...STATUS_ALL];
 export const FL = { nama: 'Nama lengkap', nim: 'NIM / NIP', prodi: 'Program studi / unit', smt: 'Semester', tujuan: 'Instansi tujuan', ket: 'Keperluan / deskripsi' };
-export const SPECIAL = { _isi: 'Isi surat (kotak)', _nomor: 'Nomor surat', _tanggal: 'Tanggal', _ttd: 'Tanda tangan (gambar)', _ttd_nama: 'Nama penandatangan', _ttd_jabatan: 'Jabatan penandatangan', _qr: 'QR verifikasi' };
+export const SPECIAL = { _isi: 'Isi surat (kotak)', _nomor: 'Nomor surat', _tanggal: 'Tanggal', _ttd: 'Tanda tangan (gambar)', _ttd_nama: 'Nama penandatangan', _ttd_jabatan: 'Jabatan penandatangan', _qr: 'QR verifikasi', _cap: 'Cap / stempel (gambar)' };
 
 export const S = {
   user: null, p: null, set: {}, sv: [], rq: [], nt: [], users: [], stats: {}, queue: {},
@@ -38,11 +38,72 @@ export function fd(ms) {
   return Math.floor(m / 1440) + ' hr ' + Math.floor((m % 1440) / 60) + ' jam';
 }
 export async function run(f) {
+  loading(true);
   try { return await f(); } catch (e) {
     const m = e && e.message ? e.message : String(e);
-    alert(/permission|insufficient/i.test(m) ? 'Tindakan ditolak oleh aturan keamanan (mis. batas waktu konfirmasi belum lewat, status sudah berubah, atau Anda tidak berwenang). Muat ulang lalu coba lagi.' : m);
-  }
+    toast(/permission|insufficient/i.test(m) ? 'Tindakan ditolak oleh aturan keamanan (mis. batas waktu konfirmasi belum lewat, status sudah berubah, atau Anda tidak berwenang). Muat ulang lalu coba lagi.' : m, 'er');
+  } finally { loading(false); }
 }
+
+/* ---------- Kit UX (adopsi framework: toast, loading, dialog konfirmasi, empty, validasi) ---------- */
+/** Toast non-blokir pengganti alert(). type: 'ok' | 'er' | 'info'. */
+export function toast(msg, type = 'info', ms = 4200) {
+  let box = document.getElementById('toasts');
+  if (!box) { box = document.createElement('div'); box.id = 'toasts'; box.setAttribute('aria-live', 'polite'); document.body.appendChild(box); }
+  const el = document.createElement('div');
+  el.className = 'toast ' + (type === 'ok' ? 'ok' : type === 'er' ? 'er' : '');
+  el.innerHTML = `<span>${type === 'ok' ? '✅' : type === 'er' ? '⚠️' : 'ℹ️'}</span><span style="flex:1">${esc(msg)}</span><button aria-label="Tutup">✕</button>`;
+  el.querySelector('button').onclick = () => el.remove();
+  box.appendChild(el);
+  while (box.children.length > 4) box.firstChild.remove();
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 300); }, ms);
+  return true;
+}
+/** Overlay loading dengan jeda (tidak berkedip untuk operasi cepat). Mendukung bersarang via counter. */
+let loadN = 0, loadT = null;
+export function loading(on) {
+  loadN = Math.max(0, loadN + (on ? 1 : -1));
+  if (loadN > 0 && !document.getElementById('ld')) {
+    clearTimeout(loadT);
+    loadT = setTimeout(() => {
+      if (loadN > 0 && !document.getElementById('ld')) {
+        const d = document.createElement('div'); d.id = 'ld'; d.innerHTML = '<div class="spin" role="status" aria-label="Memuat"></div>';
+        document.body.appendChild(d);
+      }
+    }, 220);
+  }
+  if (loadN === 0) { clearTimeout(loadT); document.getElementById('ld')?.remove(); }
+}
+/**
+ * Dialog konfirmasi pengganti confirm() bawaan. Render di overlay sendiri (#cf)
+ * agar tidak menimpa modal #md yang sedang terbuka. HANYA panggil saat tidak ada
+ * modal #md yang terbuka (aksi destruktif dari halaman: hapus layanan, cabut kunci, klaim, dsb).
+ */
+export function confirmDlg({ title = 'Yakin?', msg = '', ok = 'Ya, lanjutkan', danger = false } = {}) {
+  document.getElementById('cf')?.remove();
+  return new Promise((res) => {
+    const d = document.createElement('div'); d.id = 'cf';
+    d.innerHTML = `<div class="cf-box" role="alertdialog" aria-modal="true"><h2>${esc(title)}</h2>${msg ? `<p class="mu">${esc(msg)}</p>` : ''}<div class="row"><button class="btn g" data-x="no">Batal</button><button class="btn ${danger ? 'r' : ''}" data-x="yes">${esc(ok)}</button></div></div>`;
+    const done = (v) => { d.remove(); document.removeEventListener('keydown', esc2); res(v); };
+    const esc2 = (e) => { if (e.key === 'Escape') done(false); };
+    d.querySelector('[data-x=no]').onclick = () => done(false);
+    d.querySelector('[data-x=yes]').onclick = () => done(true);
+    d.addEventListener('click', (e) => { if (e.target === d) done(false); });
+    document.addEventListener('keydown', esc2);
+    document.body.appendChild(d);
+    d.querySelector('[data-x=yes]').focus();
+  });
+}
+/** Status kosong yang konsisten untuk daftar. */
+export const empty = (icon, text) => `<p class="empty">${icon} ${esc(text)}</p>`;
+/** Validator form terpusat. Kembalikan '' bila valid, atau pesan galat. */
+export const vReq = (v, name) => (String(v ?? '').trim() ? '' : name + ' wajib diisi');
+export const vEmail = (v) => (/^\S+@\S+\.\S+$/.test(String(v || '').trim()) ? '' : 'Email tidak valid');
+export const vPhone = (v) => (/^08\d{7,13}$/.test(String(v || '').trim().replace(/[\s-]/g, '')) ? '' : 'Nomor HP diawali 08, 9–15 digit');
+export const vUrl = (v) => (!String(v || '').trim() || /^https:\/\/[^\s/$.?#].[^\s]*$/i.test(String(v).trim()) ? '' : 'URL harus diawali https:// (atau kosongkan)');
+export const vMin = (v, n, name) => (String(v ?? '').trim().length >= n ? '' : (name || 'Isian') + ' minimal ' + n + ' karakter');
+/** Tunda eksekusi hingga jeda tanpa panggilan baru (pencarian, filter). */
+export const debounce = (fn, ms = 300) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
 /** Durasi per tahap. Timer berhenti pada status akhir (Selesai/Dibatalkan). */
 export function stages(r) {

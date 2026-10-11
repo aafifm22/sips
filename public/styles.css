@@ -81,3 +81,21 @@ body.noscroll{overflow:hidden}
 .fg{display:grid;grid-template-columns:1fr;gap:0 12px}@media(min-width:700px){.fg{grid-template-columns:1fr 1fr}}
 .sgr{border:1px solid var(--bd);border-radius:12px;padding:10px 12px;margin:10px 0;display:grid;grid-template-columns:1fr;gap:0 12px;background:var(--card)}@media(min-width:700px){.sgr{grid-template-columns:1fr 1fr}}
 details.svc{padding:14px 16px}details.svc>summary{font-size:15px;list-style-position:inside}details.svc[open]>summary{margin-bottom:12px}
+/* ===== Kit UX (toast, loading, dialog, empty, skeleton) ===== */
+#toasts{position:fixed;left:12px;right:12px;bottom:calc(76px + env(safe-area-inset-bottom,0));z-index:90;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+@media(min-width:820px){#toasts{left:auto;right:20px;bottom:20px;width:360px}}
+.toast{pointer-events:auto;display:flex;gap:10px;align-items:flex-start;background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:14px;padding:12px 12px;box-shadow:var(--sh);font-size:14px;animation:tin .25s ease}
+.toast.ok{border-color:var(--ok)}.toast.er{border-color:var(--er)}
+.toast button{border:0;background:none;color:var(--mu);cursor:pointer;font-size:14px;padding:2px 6px}
+.toast.out{opacity:0;transform:translateY(6px);transition:.3s}
+@keyframes tin{from{opacity:0;transform:translateY(8px)}}
+#ld{position:fixed;inset:0;z-index:80;background:#0a0f1e55;display:flex;align-items:center;justify-content:center}
+.spin{width:46px;height:46px;border-radius:50%;border:4px solid var(--bd);border-top-color:var(--pr);animation:spn .8s linear infinite}
+@keyframes spn{to{transform:rotate(360deg)}}
+#cf{position:fixed;inset:0;z-index:70;background:#0a0f1e99;display:flex;align-items:center;justify-content:center;padding:16px}
+.cf-box{background:var(--card);border:1px solid var(--bd);border-radius:18px;padding:20px;max-width:440px;width:100%;box-shadow:var(--sh)}
+.cf-box .row{justify-content:flex-end;margin-top:14px}
+.empty{text-align:center;color:var(--mu);padding:22px 10px}
+.skel{border-radius:10px;background:linear-gradient(90deg,var(--bd) 25%,var(--pr2) 50%,var(--bd) 75%);background-size:200% 100%;animation:skl 1.2s infinite;min-height:16px}
+@keyframes skl{to{background-position:-200% 0}}
+@media(prefers-reduced-motion:reduce){.toast,.spin,.skel{animation:none}}

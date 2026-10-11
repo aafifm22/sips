@@ -1,6 +1,6 @@
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut, updateProfile } from 'firebase/auth';
 import { doc, onSnapshot, collection, query, where, orderBy, limit } from 'firebase/firestore';
-import { auth, fs, S, F, $, esc, run, hook, isAdm, isSup, modal, svc } from './core.js';
+import { auth, fs, S, F, $, esc, run, hook, isAdm, isSup, modal, svc, toast, confirmDlg } from './core.js';
 import { pendingSlots } from './api.js';
 import { homeV, ajukanV, mineV, lacakV, notifV, dashV } from './user.js';
 import { queueV, fbV, svcV, usersV, settingsV, auditV, approveV, ledgerV, attentionV, checklistV } from './admin.js';
@@ -37,7 +37,7 @@ A.more = () => {
 };
 A.nav = (v) => { S.view = v; if (v === 'audit') A.loadAudit(); if (v === 'ledger') A.loadLedger(); if (v === 'export') A.loadExport(); if (location.hash.startsWith('#/v/')) location.hash = ''; render(); scrollTo(0, 0); };
 A.logout = () => signOut(auth);
-A.claim = async () => { if (confirm('Jadikan akun ini Admin Super? Hanya bisa dilakukan SEKALI, oleh orang pertama yang mengklaim.') && await run(() => F.claimSuper())) alert('Anda kini Admin Super.'); };
+A.claim = async () => { if (await confirmDlg({ title: 'Jadikan akun ini Admin Super?', msg: 'Hanya bisa dilakukan SEKALI, oleh orang pertama yang mengklaim.', ok: 'Ya, klaim' }) && await run(() => F.claimSuper())) toast('Anda kini Admin Super.', 'ok'); };
 A.moreClosed = () => { S.closedLimit += 300; startData(); };
 
 /* ---------- login ---------- */
@@ -55,7 +55,7 @@ Object.assign(A, {
     const e = $('#l_email').value.trim(), p = $('#l_pass').value;
     if (loginMode === 'up') { const c = await createUserWithEmailAndPassword(auth, e, p); const n = $('#l_name').value.trim(); if (n) await updateProfile(c.user, { displayName: n }); } else await signInWithEmailAndPassword(auth, e, p);
   }),
-  reset: () => run(async () => { const e = $('#l_email').value.trim(); if (!e) return alert('Isi email dulu'); await sendPasswordResetEmail(auth, e); alert('Tautan reset sandi dikirim ke email.'); }),
+  reset: () => run(async () => { const e = $('#l_email').value.trim(); if (!e) return toast('Isi email dulu', 'er'); await sendPasswordResetEmail(auth, e); toast('Tautan reset sandi dikirim ke email.', 'ok'); }),
 });
 
 /* ---------- panduan & versi ---------- */
@@ -126,7 +126,7 @@ onAuthStateChanged(auth, async (u) => {
   S.unsub.forEach((f) => f()); S.unsub = []; dataUnsub.forEach((f) => f()); dataUnsub = []; dataKey = '';
   S.user = u; S.p = null; S.rq = []; S.nt = []; S.users = []; S.appr = []; S.ready = true;
   if (!u) { S.view = 'ajukan'; applyTheme(); await A.loadGuest(); A.refresh(); render(); return; }
-  try { await F.ensure(); } catch (e) { alert('Gagal memuat profil: ' + e.message); signOut(auth); return; }
+  try { await F.ensure(); } catch (e) { toast('Gagal memuat profil: ' + e.message, 'er'); signOut(auth); return; }
   S.unsub.push(onSnapshot(doc(fs, 'users', u.uid), (d) => {
     const first = !S.p; S.p = d.data(); applyTheme();
     const k = [S.p.role, !!S.p.signer, S.p.active].join('|');

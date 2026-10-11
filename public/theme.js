@@ -10,6 +10,7 @@ export function pref() {
 export function applyTheme() {
   const t = pref(), r = document.documentElement;
   r.dataset.theme = t.theme === 'auto' ? '' : t.theme; r.style.setProperty('--pr', hexOf(t.accent)); document.body.classList.toggle('colorful', !!t.colorful);
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', hexOf(t.accent));
 }
 function themeM() {
   const t = pref();

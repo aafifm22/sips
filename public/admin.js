@@ -1,12 +1,15 @@
-import { S, F, fs, $, esc, fd, fdate, run, stages, modal, saveFile, tagOf, svc, isAdm, isSup, openQ, QUEUE, DAY, FL, SPECIAL, WHO, STATUS_ALL, STATUS_SELF, hook, flowOf } from './core.js';
+import { S, F, fs, $, esc, fd, fdate, run, stages, modal, csv, saveFile, tagOf, svc, isAdm, isSup, openQ, QUEUE, DAY, FL, SPECIAL, WHO, STATUS_ALL, STATUS_SELF, hook, flowOf, toast, confirmDlg, empty, vUrl } from './core.js';
 import { reqCard, stageTable, stepper, signChecklist, combo } from './user.js';
 import { doc, getDoc, setDoc, updateDoc, addDoc, deleteDoc, collection, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
-import { putSig, tplBytes, ensureKey, hasKey, cfg, pendingSlots } from './api.js';
+import { putSig, tplBytes, ensureKey, hasKey, cfg, pendingSlots, clearLogoCache, AI_PROVIDERS, aiCfg } from './api.js';
 import { sha256, b64, dataUrlBytes } from './crypto.js';
 
 const A = (window.A = window.A || {});
 const fill = (body, data) => String(body || '').replace(/\{(\w+)\}/g, (_, k) => data[k] || '…');
 const log = (action, target, detail) => F.audit({ action, target, detail }).catch(() => {});
+/** Kecilkan gambar (dataURL/canvas) ke sisi terpanjang max px, hasil dataURL PNG. */
+const downscale = (src, max) => new Promise((res, rej) => { const im = new Image(); im.onload = () => { const k = Math.min(1, max / im.width, max / im.height), c = document.createElement('canvas'); c.width = Math.max(1, Math.round(im.width * k)); c.height = Math.max(1, Math.round(im.height * k)); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); res(c.toDataURL('image/png')); }; im.onerror = rej; im.src = src; });
+const readImgFile = (f, max) => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => downscale(fr.result, max).then(res, rej); fr.onerror = rej; fr.readAsDataURL(f); });
 
 /* ---------- Antrean, perhatian, checklist ---------- */
 function agentInner() {
@@ -14,7 +17,7 @@ function agentInner() {
   return `<label class="chk"><input type="checkbox" ${on ? 'checked' : ''} onchange="A.agentToggle(this.checked)">Aktif di perangkat ini</label>
   <p class="mu">Memproses layanan berstatus "Terbit otomatis" tanpa cek ulang admin (sesuai jeda & syarat per layanan). Browser/tab ini harus terbuka dan akun admin login. ${el.length ? `<b>${el.length}</b> permintaan menunggu giliran otomatis.` : 'Tidak ada permintaan otomatis yang menunggu.'}</p>`;
 }
-Object.assign(A, { async agentToggle(on) { if (on) { try { await ensureKey(); } catch (e) { alert(e.message); localStorage.removeItem('ly-agent'); return hook.render(); } } localStorage.setItem('ly-agent', on ? '1' : '0'); if (on) F.autoRun(); hook.render(); }, qf(k) { S.qf = k; hook.render(); } });
+Object.assign(A, { async agentToggle(on) { if (on) { try { await ensureKey(); } catch (e) { toast(e.message, 'er'); localStorage.removeItem('ly-agent'); return hook.render(); } } localStorage.setItem('ly-agent', on ? '1' : '0'); if (on) F.autoRun(); hook.render(); }, qf(k) { S.qf = k; hook.render(); } });
 /** Beranda admin = "Kerjakan surat": pilih filter, buka kartu, ikuti langkah. */
 export function queueV() {
   const now = Date.now(), order = openQ().map((r) => r.id), byQ = (a, b) => order.indexOf(a.id) - order.indexOf(b.id);
@@ -36,7 +39,8 @@ export function queueV() {
 }
 export function fbV() {
   const l = S.rq.filter((r) => r.feedback);
-  return `<div class="card"><h2>Feedback (${l.length})</h2>${l.map((r) => `<div class="item"><b>${esc(r.sname)}</b> <span class="tag">${'★'.repeat(r.feedback.stars)}</span><div class="mu">${Object.entries(r.feedback.aspects || {}).map(([k, v]) => k + ' ' + v).join(' · ')}</div>${esc(r.feedback.note)}</div>`).join('') || '<p class="mu">Belum ada.</p>'}</div>`;
+  const avg = l.length ? (l.reduce((a, r) => a + (r.feedback.stars || 0), 0) / l.length).toFixed(1) : '–';
+  return `<div class="card"><div class="row"><h2 style="flex:1">Feedback (${l.length}) · ${avg} ★</h2><button class="btn s" onclick="A.expFb()">⬇ Unduh semua (CSV)</button></div>${l.map((r) => `<div class="item"><b>${esc(r.sname)}</b> <span class="tag">${'★'.repeat(r.feedback.stars)}</span> <span class="mu">${r.code} · ${esc(r.requester.name)} · ${fdate(r.feedback.at)}</span><div class="mu">${Object.entries(r.feedback.aspects || {}).map(([k, v]) => k + ' ' + v).join(' · ')}</div>${esc(r.feedback.note)}</div>`).join('') || empty('📭', 'Belum ada feedback.')}</div>`;
 }
 /** Pengganti pengingat terjadwal (tidak ada scheduler di Spark): daftar yang perlu perhatian, dihitung langsung. */
 export function attentionV() {
@@ -71,7 +75,7 @@ const SEED = [
 ];
 export function svcV() {
   const MD = { auto: 'Otomatis', template: 'Template', ai: 'Dibantu AI' };
-  return `<div class="card"><h2>Kelola layanan</h2><p class="mu">Ketuk sebuah layanan untuk mengubah pengaturannya.</p><div class="row"><button class="btn" onclick="A.addSvc()">＋ Tambah layanan</button>${isSup() ? '<button class="btn g" onclick="A.seedSvc()">Isi layanan awal (11 contoh)</button>' : ''}</div></div>
+  return `<div class="card"><h2>Kelola layanan</h2><p class="mu">Ketuk sebuah layanan untuk mengubah pengaturannya.</p><div class="row"><button class="btn" onclick="A.addSvc()">＋ Tambah layanan</button>${isSup() ? '<button class="btn g" onclick="A.seedSvc()">Isi layanan awal (11 contoh)</button><button class="btn r s" onclick="A.resetSvc()">Reset semua layanan</button>' : ''}</div></div>
   ${S.sv.map((s) => {
     const t = s.template, f = flowOf(s), n = f.signers.filter((x) => x.required !== false).length;
     return `<details class="card svc"><summary><b>${esc(s.name)}</b> ${s.on ? '' : '<span class="tag er">nonaktif</span>'}<div class="mu">${MD[s.mode] || s.mode} · maks ${s.sla} hari · ${f.issue === 'auto' ? 'terbit otomatis' : 'dicek admin'} · ${n} penandatangan${t && t.id ? ' · template PDF' : ''}</div></summary>
@@ -118,7 +122,7 @@ Object.assign(A, {
   signerAdd(id) { const f = flowOf(svc(id)); return saveFlow(id, { ...f, signers: [...f.signers, { key: 's' + Date.now().toString(36), label: 'Penandatangan ' + (f.signers.length + 1), uid: '', mode: 'manual', required: true, order: (f.signers.length ? Math.max(...f.signers.map((x) => x.order || 1)) : 0) + 1 }] }); },
   signerDel(id, key) { const f = flowOf(svc(id)); return saveFlow(id, { ...f, signers: f.signers.filter((x) => x.key !== key) }); },
 });
-const lblOf = (s, k) => { if (FL[k] || SPECIAL[k]) return FL[k] || SPECIAL[k]; const [t, sk] = k.split(':'), sl = flowOf(s).signers.find((x) => x.key === sk); return `${{ _ttd: 'TTD', _ttd_nama: 'Nama', _ttd_jabatan: 'Jabatan' }[t] || t}: ${sl ? sl.label : sk}`; };
+const lblOf = (s, k) => { if (FL[k] || SPECIAL[k]) return FL[k] || SPECIAL[k]; const [t, sk] = k.split(':'), sl = flowOf(s).signers.find((x) => x.key === sk); return `${{ _ttd: 'TTD', _ttd_nama: 'Nama', _ttd_jabatan: 'Jabatan', _cap: 'Cap' }[t] || t}: ${sl ? sl.label : sk}`; };
 let M = null; // state editor penempatan
 const DEF = { _isi: { w: 450, size: 11 }, _ttd: { w: 140, h: 60 }, _qr: { w: 70 } };
 Object.assign(A, {
@@ -130,19 +134,34 @@ Object.assign(A, {
     await run(() => setDoc(doc(fs, 'services', id), { name: n, code: 'SRT', sla: 3, mode: 'template', on: true, fields: ['nama', 'nim', 'prodi', 'ket'], who: ['Mahasiswa'], needSign: true, signName: '', signTitle: 'Ketua STIKES YKY', body: 'Menerangkan bahwa {nama} (NIM {nim}, {prodi}) untuk keperluan {ket}.', order: Date.now() }));
     log('service.create', id, n);
   },
-  async delSvc(id) { if (confirm('Hapus layanan ini? Permintaan lama tetap tersimpan.')) { await run(() => deleteDoc(doc(fs, 'services', id))); log('service.delete', id); } },
+  async delSvc(id) { if (await confirmDlg({ title: 'Hapus layanan ini?', msg: 'Permintaan lama tetap tersimpan.', ok: 'Hapus', danger: true })) { await run(() => deleteDoc(doc(fs, 'services', id))); log('service.delete', id); } },
+  async resetSvc() {
+    if (!isSup()) return toast('Hanya Admin Super.', 'er');
+    const n = S.sv.length;
+    if (!n) return toast('Tidak ada layanan.', 'info');
+    if (!await confirmDlg({ title: `Hapus SEMUA ${n} layanan?`, msg: 'Permintaan lama tetap tersimpan, tetapi pemohon tidak bisa mengajukan sampai layanan dibuat lagi.', ok: 'Hapus semua', danger: true })) return;
+    if (prompt('Ketik RESET untuk memastikan:') !== 'RESET') return toast('Dibatalkan.', 'info');
+    await run(async () => { for (const s of [...S.sv]) await deleteDoc(doc(fs, 'services', s.id)); });
+    log('service.reset', '', n + ' layanan dihapus');
+  },
+  async expFb() {
+    const h = ['Kode', 'Jenis surat', 'Pemohon', 'Status pemohon', 'Email', 'Bintang', 'Kerapihan', 'Kecepatan', 'Keramahan', 'Komentar', 'Waktu'];
+    const rows = S.rq.filter((r) => r.feedback).map((r) => [r.code, r.sname, r.requester.name, r.requester.status, r.requester.email, r.feedback.stars, (r.feedback.aspects || {}).Kerapihan || '', (r.feedback.aspects || {}).Kecepatan || '', (r.feedback.aspects || {}).Keramahan || '', r.feedback.note || '', fdate(r.feedback.at)]);
+    saveFile('feedback-' + new Date().toISOString().slice(0, 10) + '.csv', csv([h, ...rows]), 'text/csv');
+    log('feedback.export', '', rows.length + ' baris');
+  },
   async seedSvc() {
-    if (!confirm('Menambahkan/menimpa 11 layanan contoh dengan ID yang sama. Lanjutkan?')) return;
+    if (!await confirmDlg({ title: 'Isi 11 layanan contoh?', msg: 'Menambahkan/menimpa layanan dengan ID yang sama.', ok: 'Lanjutkan' })) return;
     for (const [id, name, code, sla, mode, fields, who, body] of SEED) await setDoc(doc(fs, 'services', id), { name, code, sla, mode, fields, who, body, on: true, needSign: true, signName: '', signTitle: 'Ketua STIKES YKY', order: sla });
     log('service.seed', '', '11 layanan');
   },
   async upTpl(id, inp) {
     const f = inp.files[0]; if (!f) return;
-    if (f.type !== 'application/pdf') return alert('Hanya PDF. Untuk Word/ODT pakai tombol "Word → PDF (via Google Drive)".');
+    if (f.type !== 'application/pdf') return toast('Hanya PDF. Untuk Word/ODT pakai tombol "Word → PDF (via Google Drive)".', 'er');
     await A.saveTpl(id, f.name, new Uint8Array(await f.arrayBuffer()));
   },
   async saveTpl(id, name, bytes) {
-    if (bytes.length > 2.4e6) return alert('Maksimal ±2,4 MB. Kompres PDF (kurangi gambar/font) lalu coba lagi.');
+    if (bytes.length > 2.4e6) return toast('Maksimal ±2,4 MB. Kompres PDF (kurangi gambar/font) lalu coba lagi.', 'er');
     const s = svc(id), v = ((s.template && s.template.version) || 0) + 1, tid = `${id}_v${v}`, sha = await sha256(bytes), all = b64(bytes), N = Math.ceil(all.length / 850000);
     await run(async () => {
       for (let i = 1; i <= N; i++) { const part = all.slice((i - 1) * 850000, i * 850000); await setDoc(doc(fs, 'templates', i === 1 ? tid : `${tid}_p${i}`), i === 1 ? { sid: id, version: v, name, sha, size: bytes.length, parts: N, b64: part, at: Date.now() } : { b64: part }); }
@@ -163,12 +182,12 @@ Object.assign(A, {
   },
   /* editor penempatan: klik pada pratinjau PDF untuk menandai posisi isian */
   async mapEd(id) {
-    const s = svc(id); if (!window.pdfjsLib) return alert('pdf.js tidak termuat (periksa koneksi internet).');
+    const s = svc(id); if (!window.pdfjsLib) return toast('pdf.js tidak termuat (periksa koneksi internet).', 'er');
     window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     const bytes = await run(() => tplBytes(s.template.id)); if (!bytes) return;
     const pdf = await window.pdfjsLib.getDocument({ data: bytes.slice() }).promise;
     M = { id, pdf, page: 0, sel: '', map: JSON.parse(JSON.stringify(s.template.map || {})), mode: s.template.mode || 'stamp', scale: 1.2 };
-    const keys = [...(s.fields || []), ...Object.keys(SPECIAL), ...flowOf(s).signers.flatMap((x) => [`_ttd:${x.key}`, `_ttd_nama:${x.key}`, `_ttd_jabatan:${x.key}`])];
+    const keys = [...(s.fields || []), ...Object.keys(SPECIAL), ...flowOf(s).signers.flatMap((x) => [`_ttd:${x.key}`, `_ttd_nama:${x.key}`, `_ttd_jabatan:${x.key}`, `_cap:${x.key}`])];
     modal(`<h2>Penempatan isian · ${esc(s.name)}</h2>
     <div class="row"><label>Mode<select id="mmode" onchange="A.mMode(this.value)" style="width:auto"><option value="stamp" ${M.mode === 'stamp' ? 'selected' : ''}>Koordinat (PDF datar)</option><option value="acroform" ${M.mode === 'acroform' ? 'selected' : ''}>AcroForm (nama field = kunci isian)</option></select></label>
     <label>Halaman<select id="mpage" onchange="A.mPage(+this.value)" style="width:auto">${Array.from({ length: pdf.numPages }, (_, i) => `<option value="${i}">${i + 1}</option>`).join('')}</select></label>
@@ -177,7 +196,7 @@ Object.assign(A, {
     <div class="scroll"><canvas id="mcv" style="border:1px solid var(--bd);cursor:crosshair"></canvas></div><div id="mlist"></div>
     <div class="row"><button class="btn" onclick="A.mSave()">Simpan penempatan</button><button class="btn g" onclick="A.close()">Batal</button></div>`);
     $('#mcv').onclick = (e) => {
-      if (!M.sel) return alert('Pilih isian yang akan ditandai terlebih dahulu.');
+      if (!M.sel) return toast('Pilih isian yang akan ditandai terlebih dahulu.', 'info');
       const c = e.target, b = c.getBoundingClientRect(), cx = ((e.clientX - b.left) * c.width) / b.width, cy = ((e.clientY - b.top) * c.height) / b.height;
       M.map[M.sel] = { ...(DEF[M.sel.split(':')[0]] || { size: 11 }), ...(M.map[M.sel] || {}), page: M.page, x: Math.round(cx / M.scale), y: Math.round((c.height - cy) / M.scale) };
       A.mDraw();
@@ -234,16 +253,36 @@ Object.assign(A, {
   sigDraw(key) {
     const c = $('#cv'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let ok = 0;
     for (let i = 3; i < d.length; i += 4) if (d[i]) { ok = 1; break; }
-    if (!ok) return alert('Coretkan tanda tangan terlebih dahulu'); A.sigSet(key, c.toDataURL('image/png'));
+    if (!ok) return toast('Coretkan tanda tangan terlebih dahulu', 'info'); A.sigSet(key, c.toDataURL('image/png'));
   },
   sigUp(key, inp) {
     const f = inp.files[0]; if (!f) return; const fr = new FileReader();
-    fr.onload = () => { const im = new Image(); im.onload = () => { const k = Math.min(1, 360 / im.width, 140 / im.height), c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); A.sigSet(key, c.toDataURL('image/png')); }; im.onerror = () => alert('Gambar tidak valid'); im.src = fr.result; };
+    fr.onload = () => { const im = new Image(); im.onload = () => { const k = Math.min(1, 360 / im.width, 140 / im.height), c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); A.sigSet(key, c.toDataURL('image/png')); }; im.onerror = () => toast('Gambar tidak valid', 'er'); im.src = fr.result; };
     fr.readAsDataURL(f);
   },
   sigUse(key, i) { if (i === '') return; const x = S.signers[i]; keep(key); S.sig[key] = { sha: x.id, url: x.png }; reopen(key); },
   sigDel(key) { keep(key); delete S.sig[key]; reopen(key); },
 });
+
+/* ---------- Kop & cap pilihan per surat (dropdown dinamis) ---------- */
+const kopEntries = () => S.set.kopList || [];
+const capEntries = () => S.set.stampList || [];
+function kopSelHTML() {
+  const l = kopEntries(); if (!l.length) return '';
+  const def = l.some((e) => e.id === S.set.kopDefaultId) ? S.set.kopDefaultId : l[0].id;
+  return `<label>Kop surat<select id="lkop">${l.map((e) => `<option value="${e.id}" ${e.id === def ? 'selected' : ''}>${esc(e.name || 'Kop')}</option>`).join('')}</select></label>`;
+}
+function capSelHTML(signers = []) {
+  const l = capEntries(), legacy = S.set.stampSha;
+  if (!l.length && !legacy) return isSup() ? '<p class="mu">Cap belum diunggah. Unggah di Pengaturan > Cap / stempel bila surat perlu cap.</p>' : '';
+  const def = S.set.stampDefault === false ? '' : l.some((e) => e.id === S.set.stampDefaultId) ? S.set.stampDefaultId : l.length ? l[0].id : 'legacy';
+  const opt = `<option value="" ${def === '' ? 'selected' : ''}>Tanpa cap</option>${l.map((e) => `<option value="${e.id}" ${e.id === def ? 'selected' : ''}>${esc(e.name || 'Cap')}</option>`).join('')}${legacy ? `<option value="legacy" ${def === 'legacy' ? 'selected' : ''}>Cap lama</option>` : ''}`;
+  if (!signers.length) return `<label>Cap / stempel<select id="lcap">${opt}</select></label><p class="mu">Cap menimpa (overlap) tanda tangan.</p>`;
+  return signers.map((sl) => `<label>Cap — ${esc(sl.label)}<select id="lcap_${sl.key}">${opt}</select></label>`).join('') + '<p class="mu">Tiap penandatangan bisa memakai cap berbeda (atau tanpa cap). Cap menimpa tanda tangan.</p>';
+}
+/** Kumpulkan pilihan cap per penandatangan dari dropdown: {kunci: idCap|'legacy'} */
+const stampMapFromDOM = () => { const m = {}; document.querySelectorAll('select[id^="lcap"]').forEach((el) => { if (el.value) m[el.id === 'lcap' ? '_' : el.id.slice(5)] = el.value; }); return m; };
+const selVal = (id) => { const el = document.querySelector('#' + id); return el ? el.value : ''; };
 
 /* ---------- Proses surat (admin) ---------- */
 const STP = { cek: 'Periksa', isi: 'Isi surat', ttd: 'Tanda tangan', out: 'Terbitkan' };
@@ -292,7 +331,16 @@ async function proc(id) {
     body = `${sigUI(id, D.signName, D.signTitle, s.needSign)}<button class="btn g" onclick="A.prev('${id}')">👁 Pratinjau PDF</button>`; foot = `${back}${next}`;
   } else {
     const who = legacySig ? `${esc(D.signName || '(tanpa nama)')}${D.signTitle ? ' · ' + esc(D.signTitle) : ''}${(S.sig[id] || {}).sha ? ' · dengan gambar tanda tangan' : ''}` : '';
-    body = `<h3>${revise ? 'Terbitkan revisi' : send ? 'Kirim ke pejabat' : 'Terbitkan surat'}</h3><div class="card"><div><b>Ringkasan</b></div><div class="mu">${r.letter ? 'No. ' + esc(r.letter.no) + ' · versi berikutnya v' + (r.letter.version + 1) : 'Nomor surat dibuat otomatis saat terbit'}${legacySig ? `<br>Penandatangan: ${who}` : ''}</div>${legacySig ? '' : signChecklist(r) || `<div class="mu">Penandatangan sesuai checklist alur layanan: ${req.map((x) => esc(x.label) + (x.mode === 'delegated' ? ' (otomatis)' : '')).join(', ')}.</div>`}</div>
+    const cf = cfg(), noMode = cf.letterNoMode || 'auto';
+    const noUI = r.letter ? '' : noMode === 'manual'
+      ? '<label>Nomor surat * (mode manual — wajib diisi)<input id="lno" placeholder="mis. 12/STIKES-YKY/II/2026"></label>'
+      : noMode === 'both' ? '<label>Nomor surat (kosongkan = otomatis)<input id="lno" placeholder="otomatis bila dikosongkan"></label>' : '';
+    const capUI = capSelHTML(req.filter((x) => x.uid));
+    const kopUI = (s.template && s.template.id)
+      ? '<p class="mu">Template PDF dipakai — kop mengikuti template.</p>'
+      : kopSelHTML();
+    body = `<h3>${revise ? 'Terbitkan revisi' : send ? 'Kirim ke pejabat' : 'Terbitkan surat'}</h3><div class="card"><div><b>Ringkasan</b></div><div class="mu">${r.letter ? 'No. ' + esc(r.letter.no) + ' · versi berikutnya v' + (r.letter.version + 1) : noMode === 'auto' ? 'Nomor surat dibuat otomatis saat terbit' : noMode === 'manual' ? 'Nomor surat diisi manual di bawah' : 'Nomor otomatis, atau isi manual di bawah'}${legacySig ? `<br>Penandatangan: ${who}` : ''}</div>${legacySig ? '' : signChecklist(r) || `<div class="mu">Penandatangan sesuai checklist alur layanan: ${req.map((x) => esc(x.label) + (x.mode === 'delegated' ? ' (otomatis)' : '')).join(', ')}.</div>`}</div>
+    ${noUI}${kopUI}${capUI}
     <button class="btn g" onclick="A.prev('${id}')">👁 Pratinjau PDF terakhir</button>
     <label style="display:block;margin-top:10px">Catatan (opsional)</label><input id="lnote" placeholder="mis. perbaikan nama">
     <p class="mu">${send ? 'Surat dikirim ke pejabat; penandatangan terakhir yang menerbitkannya.' : 'Menerbitkan mencatat dokumen ke rantai hash <b>secara permanen</b> dan menandatanganinya dengan kunci perangkat ini.'}</p>
@@ -304,7 +352,8 @@ async function proc(id) {
 async function previewOf(key) {
   const id = key.replace(/^ap:/, ''), r = S.rq.find((x) => x.id === id) || S.appr.find((x) => x.id === id), s = svc(r.sid); keep(key);
   const D = S.draft[key] || {}, dr = r.draft || {};
-  return F.preview({ r, content: D.content ?? dr.content ?? fill(s.body, r.data), signerName: D.signName ?? dr.signerName ?? s.signName ?? S.p.name, signerTitle: D.signTitle ?? dr.signerTitle ?? s.signTitle ?? '', sigSha: (S.sig[key] || {}).sha || null });
+  const noEl = document.querySelector('#lno');
+  return F.preview({ r, content: D.content ?? dr.content ?? fill(s.body, r.data), signerName: D.signName ?? dr.signerName ?? s.signName ?? S.p.name, signerTitle: D.signTitle ?? dr.signerTitle ?? s.signTitle ?? '', sigSha: (S.sig[key] || {}).sha || null, noManual: noEl ? noEl.value : '', kopId: selVal('lkop'), stampMap: stampMapFromDOM() });
 }
 Object.assign(A, {
   proc,
@@ -319,18 +368,19 @@ Object.assign(A, {
   async flag(id) { if (await run(() => F.change({ id, action: 'set_flag', note: $('#flg').value }))) proc(id); },
   async aiDraft(id) { $('#lc').value = 'Menyusun draf…'; const o = await run(() => F.ai({ id })); const r = S.rq.find((x) => x.id === id); $('#lc').value = o ? o.text : fill(svc(r.sid).body, r.data); keep(id); },
   async saveDraft(id) {
-    keep(id); const D = S.draft[id]; if (await run(() => F.saveDraft({ id, draft: { content: D.content, signerName: D.signName || '', signerTitle: D.signTitle || '', sigSha: (S.sig[id] || {}).sha || null, note: ($('#lnote') || {}).value || '' } }))) alert('Draf tersimpan');
+    keep(id); const D = S.draft[id]; if (await run(() => F.saveDraft({ id, draft: { content: D.content, signerName: D.signName || '', signerTitle: D.signTitle || '', sigSha: (S.sig[id] || {}).sha || null, note: ($('#lnote') || {}).value || '' } }))) toast('Draf tersimpan', 'ok');
   },
   async sendAppr(id) {
     keep(id); const D = S.draft[id];
-    if (await run(() => F.change({ id, action: 'send_approval', draft: { content: D.content, signerName: D.signName || '', signerTitle: D.signTitle || '', sigSha: (S.sig[id] || {}).sha || null, note: ($('#lnote') || {}).value || '', at: Date.now() } }))) { modal(''); delete S.wiz[id]; alert('Dikirim ke pejabat penyetuju.'); }
+    if (await run(() => F.change({ id, action: 'send_approval', draft: { content: D.content, signerName: D.signName || '', signerTitle: D.signTitle || '', sigSha: (S.sig[id] || {}).sha || null, note: ($('#lnote') || {}).value || '', at: Date.now() } }))) { modal(''); delete S.wiz[id]; toast('Dikirim ke pejabat penyetuju.', 'ok'); }
   },
   async issue(id, revise) {
     keep(id); const D = S.draft[id], r = S.rq.find((x) => x.id === id), s = svc(r.sid);
     if (!flowOf(s).signers.length && s.needSign && !(S.sig[id] || {}).sha && !confirm('Layanan ini memerlukan gambar tanda tangan tetapi belum ada. Terbitkan tanpa gambar?')) return;
     if (!confirm('Menerbitkan surat akan mencatat dokumen ke rantai hash secara PERMANEN. Lanjutkan?')) return;
-    const o = await run(() => F.issue({ id, content: D.content, signerName: D.signName || '', signerTitle: D.signTitle || '', sigSha: (S.sig[id] || {}).sha || null, note: ($('#lnote') || {}).value || '', revise }));
-    if (o) { modal(''); delete S.sig[id]; delete S.draft[id]; delete S.wiz[id]; delete S.lc[id]; alert(`Surat ${o.no} terbit (rantai #${o.seq}).`); }
+    const noEl = document.querySelector('#lno');
+    const o = await run(() => F.issue({ id, content: D.content, signerName: D.signName || '', signerTitle: D.signTitle || '', sigSha: (S.sig[id] || {}).sha || null, note: ($('#lnote') || {}).value || '', revise, noManual: noEl ? noEl.value : '', kopId: selVal('lkop'), stampMap: stampMapFromDOM() }));
+    if (o) { modal(''); delete S.sig[id]; delete S.draft[id]; delete S.wiz[id]; delete S.lc[id]; toast(`Surat ${o.no} terbit (rantai #${o.seq}).`, 'ok'); }
   },
 });
 
@@ -344,6 +394,7 @@ export function approveV() {
 Object.assign(A, {
   async approve(id, revise) {
     const r = S.appr.find((x) => x.id === id) || S.rq.find((x) => x.id === id); if (!r) return; await loadSigners();
+    const s = svc(r.sid);
     const key = 'ap:' + id, dr = r.draft || {}, D = (S.draft[key] = S.draft[key] || {}); D.revise = !!revise;
     let content = D.content ?? dr.content ?? '', last = null;
     if (revise && r.letter) { last = (await getDoc(doc(fs, 'requests', id, 'letters', String(r.letter.version)))).data(); content = D.content ?? last.rec.content; }
@@ -356,6 +407,8 @@ Object.assign(A, {
     <details><summary>Data pemohon</summary><table>${Object.entries(r.data || {}).map(([k, v]) => `<tr><th>${FL[k] || k}</th><td>${esc(v)}</td></tr>`).join('')}</table></details>
     ${dr.note ? `<p class="mu">Catatan admin: ${esc(dr.note)}</p>` : ''}
     <details ${hasSig ? '' : 'open'}><summary>✍ Tanda tangan & nama ${hasSig ? '(sudah diatur)' : '(belum ada gambar)'}</summary>${sigUI(key, sn, jt, true)}</details>
+    ${!(s.template && s.template.id) ? kopSelHTML() : ''}
+    ${capSelHTML(flowOf(s).signers.filter((x) => x.required !== false && x.uid))}
     <label>Catatan (opsional)</label><input id="lnote">
     <p class="mu">Dengan menyetujui, dokumen diberi tanda tangan digital dari kunci di perangkat ini dan dicatat permanen di rantai hash.</p>`,
     `<button class="btn g back" onclick="A.prev('${key}')" aria-label="Pratinjau PDF">👁</button>${revise ? '' : `<button class="btn r back" onclick="A.apprNo('${id}')">Tolak</button>`}<button class="btn lg" onclick="A.apprGo('${id}',${!!revise})">✍ ${revise ? 'Terbitkan revisi' : 'Setujui'}</button>`);
@@ -365,18 +418,19 @@ Object.assign(A, {
     const D = S.draft[key], dr = r.draft || {}, content = D.content ?? dr.content, note = ($('#lnote') || {}).value || '';
     const mine = { name: D.signName || '', title: D.signTitle || '', sigSha: (S.sig[key] || {}).sha || null }, fl = flowOf(s);
     if (!mine.sigSha && !confirm('Belum ada gambar tanda tangan. Setujui tanpa gambar (tanda tangan digital kriptografis tetap dibubuhkan)?')) return;
+    const kopId = selVal('lkop'), stampMap = stampMapFromDOM();
     const go = async () => {
-      if (revise || !fl.signers.length) return F.issue({ id, content, signerName: mine.name, signerTitle: mine.title, sigSha: mine.sigSha, note, revise, mine });
+      if (revise || !fl.signers.length) return F.issue({ id, content, signerName: mine.name, signerTitle: mine.title, sigSha: mine.sigSha, note, revise, mine, kopId, stampMap });
       const pend = pendingSlots(r, s), mineSlots = pend.filter((x) => x.uid === S.user.uid);
       if (!mineSlots.length) throw new Error('Tidak ada tanda tangan Anda yang tertunda');
       for (let i = 0; i < mineSlots.length; i++) {
-        if (!pend.some((x) => x.uid !== S.user.uid) && i === mineSlots.length - 1) return F.issue({ id, content, signerName: mine.name, signerTitle: mine.title, sigSha: mine.sigSha, note, mine });
+        if (!pend.some((x) => x.uid !== S.user.uid) && i === mineSlots.length - 1) return F.issue({ id, content, signerName: mine.name, signerTitle: mine.title, sigSha: mine.sigSha, note, mine, kopId, stampMap });
         await F.signoff({ id, content, name: mine.name, title: mine.title, sigSha: mine.sigSha });
       }
       return { signed: true };
     };
     const o = await run(go);
-    if (o) { modal(''); delete S.sig[key]; delete S.draft[key]; alert(o.no ? `Disetujui. Surat ${o.no} tercatat di rantai #${o.seq}.` : 'Tanda tangan Anda tercatat. Menunggu penandatangan lain.'); }
+    if (o) { modal(''); delete S.sig[key]; delete S.draft[key]; toast(o.no ? `Disetujui. Surat ${o.no} tercatat di rantai #${o.seq}.` : 'Tanda tangan Anda tercatat. Menunggu penandatangan lain.', 'ok'); }
   },
   async apprNo(id) { const n = prompt('Alasan penolakan / bagian yang perlu direvisi:'); if (n === null) return; if (await run(() => F.change({ id, action: 'reject_approval', note: n }))) modal(''); },
 });
@@ -407,15 +461,15 @@ Object.assign(A, {
     } catch (e) { console.error(e); } hook.render();
   },
   async delegSave(sid) {
-    if (await run(() => F.delegate({ sid, sigSha: $('#dg_s_' + sid).value || null, name: $('#dg_n_' + sid).value.trim(), title: $('#dg_t_' + sid).value.trim(), active: $('#dg_a_' + sid).checked }))) { alert('Delegasi disimpan'); A.loadLedger(); }
+    if (await run(() => F.delegate({ sid, sigSha: $('#dg_s_' + sid).value || null, name: $('#dg_n_' + sid).value.trim(), title: $('#dg_t_' + sid).value.trim(), active: $('#dg_a_' + sid).checked }))) { toast('Delegasi disimpan', 'ok'); A.loadLedger(); }
   },
   dgUp(inp) {
     const f = inp.files[0]; if (!f) return; const fr = new FileReader();
-    fr.onload = () => { const im = new Image(); im.onload = async () => { const k = Math.min(1, 360 / im.width, 140 / im.height), c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); await run(() => putSig(c.toDataURL('image/png'), S.p.name)); A.loadLedger(); }; im.onerror = () => alert('Gambar tidak valid'); im.src = fr.result; };
+    fr.onload = () => { const im = new Image(); im.onload = async () => { const k = Math.min(1, 360 / im.width, 140 / im.height), c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); await run(() => putSig(c.toDataURL('image/png'), S.p.name)); A.loadLedger(); }; im.onerror = () => toast('Gambar tidak valid', 'er'); im.src = fr.result; };
     fr.readAsDataURL(f);
   },
   async regKey() { if (await run(() => ensureKey())) A.loadLedger(); },
-  async revKey(kid) { if (confirm('Cabut kunci ini? Surat lama tetap valid, tetapi kunci tidak dapat dipakai menandatangani lagi (daftarkan kunci baru).') && await run(() => F.revokeKey(kid))) A.loadLedger(); },
+  async revKey(kid) { if (await confirmDlg({ title: 'Cabut kunci ini?', msg: 'Surat lama tetap valid, tetapi kunci tidak dapat dipakai menandatangani lagi (daftarkan kunci baru).', ok: 'Cabut', danger: true }) && await run(() => F.revokeKey(kid))) A.loadLedger(); },
   async initLedger() { if (await run(() => F.initLedger())) A.loadLedger(); },
   async chain() { const r = await run(() => F.chainCheck()); if (r) { S.chainRes = r; hook.render(); } },
   async exportChain() {
@@ -452,30 +506,57 @@ Object.assign(A, { uf(k) { S.uf = k; hook.render(); }, userFilter(q) { const k =
 A.usr = async (uid, patch) => {
   try { await F.user({ uid, patch }); } catch (e) {
     console.error(e);
-    alert(/permission|insufficient/i.test(e.message) ? 'Ditolak aturan keamanan. Admin tidak dapat mengubah akunnya sendiri atau akun Admin Super; peran dan hak pejabat hanya dapat diubah Admin Super (dan bukan untuk akun sendiri). Bila Anda sudah Admin Super tetapi tetap ditolak, deploy aturan terbaru: firebase deploy --only firestore:rules.' : e.message);
+    toast(/permission|insufficient/i.test(e.message) ? 'Ditolak aturan keamanan. Admin tidak dapat mengubah akunnya sendiri atau akun Admin Super; peran dan hak pejabat hanya dapat diubah Admin Super (dan bukan untuk akun sendiri). Bila Anda sudah Admin Super tetapi tetap ditolak, deploy aturan terbaru: firebase deploy --only firestore:rules.' : e.message, 'er');
   }
 };
 
 /* ---------- Pengaturan ---------- */
 export function settingsV() {
-  const p = S.p || {}, s = S.set || {}, sup = isSup();
+  const p = S.p || {}, s = S.set || {}, sup = isSup(), ac = aiCfg();
+  const aiOpts = Object.entries(AI_PROVIDERS).map(([v, o]) => `<option value="${v}" ${ac.provider === v ? 'selected' : ''}>${o.label}</option>`).join('');
   return `<div class="card"><h2>Profil & preferensi saya</h2>
   <label>Nama lengkap</label><input id="p_name" value="${esc(p.name)}"><label>HP / WhatsApp</label><input id="p_phone" value="${esc(p.phone)}"><label>NIM / NIP</label><input id="p_id" value="${esc(p.idNumber)}"><label>Program studi / unit</label>${combo('p_prodi', 'prodi', p.prodi)}
   <label>Status yang diajukan (diverifikasi admin; status saat ini: <b>${esc(p.status)}</b> ${p.verified ? '✓ terverifikasi' : '(belum terverifikasi)'})</label><select id="p_req">${STATUS_SELF.map((x) => `<option ${p.requestedStatus === x ? 'selected' : ''}>${x}</option>`).join('')}</select>
   <div class="row"><button class="btn g" onclick="A.themeM()">🎨 Tema & warna</button></div>
   <label class="chk"><input type="checkbox" id="p_mail" ${p.notifEmail !== false ? 'checked' : ''}>Terima notifikasi email (bila webhook email diaktifkan admin)</label><br><button class="btn" onclick="A.saveProfile()">Simpan profil</button></div>
   ${isAdm() ? `<div class="card"><h3>Data master pilihan</h3><p class="mu">Nilai yang diketik pengguna otomatis tersimpan dan muncul di dropdown berikutnya. Hapus yang salah atau duplikat.</p>${[['prodi', 'Program studi / unit'], ['tujuan', 'Instansi tujuan']].map(([t, l]) => `<b>${l}</b><div style="margin:6px 0">${(S.lkDocs || []).filter((x) => x.type === t).map((x) => `<span class="tag">${esc(x.label)} <a href="#" onclick="A.lkDel('${x.id}');return false" title="Hapus">×</a></span>`).join('') || '<span class="mu">(belum ada)</span>'}</div><div class="row"><input id="lk_${t}" placeholder="Tambah ${l.toLowerCase()}" style="flex:1;margin:0"><button class="btn g s" onclick="A.lkAdd('${t}')">Tambah</button></div>`).join('')}</div>
-  <div class="card"><h3>API key AI (opsional)</h3><p class="mu">Disimpan <b>hanya di browser ini</b> (localStorage), dikirim langsung ke Anthropic untuk "Draf dengan AI". Jangan dipakai di komputer bersama.</p><input id="ai_key" type="password" placeholder="sk-ant-..." value="${esc(localStorage.getItem('ly-ai-key') || '')}"><button class="btn g s" onclick="localStorage.setItem('ly-ai-key',$('#ai_key').value.trim());alert('Tersimpan di browser ini')">Simpan</button></div>` : ''}
+  <div class="card"><h3>🤖 AI pembantu draf surat (opsional)</h3><p class="mu">Kunci disimpan <b>hanya di browser ini</b> (localStorage), dikirim langsung dari browser ke penyedia AI untuk tombol "✨ Draf dengan AI". Jangan dipakai di komputer bersama. Panduan mendapatkan key ada di bawah.</p>
+  <label>Penyedia AI</label><select id="ai_prov" onchange="A.aiProv(this.value)">${aiOpts}</select>
+  <label>Model</label><input id="ai_model" list="ai_models" value="${esc(ac.model)}" placeholder="mis. gpt-4o-mini"><datalist id="ai_models">${((AI_PROVIDERS[ac.provider] || {}).models || []).map((m) => `<option value="${m}">`).join('')}</datalist>
+  ${(ac.provider === 'openai' || ac.provider === 'openrouter' || ac.provider === 'deepseek') ? '<label>Base URL (kosongkan = bawaan; isi bila memakai proxy/OpenAI-compatible)</label><input id="ai_base" value="' + esc(ac.baseUrl) + '" placeholder="https://api.openai.com/v1">' : ''}
+  <label>API key (${esc((AI_PROVIDERS[ac.provider] || {}).label || '')})</label><input id="ai_key" type="password" placeholder="tempel key di sini" value="${esc(localStorage.getItem('ly-ai-key-' + ac.provider) || localStorage.getItem('ly-ai-key') || '')}">
+  <div class="row"><button class="btn g s" onclick="A.aiSave()">Simpan key di browser ini</button><button class="btn g s" onclick="A.aiClear()">Hapus key</button></div>
+  <details><summary>📖 Cara mendapatkan API key (klik)</summary><div class="mu" style="margin-top:8px">
+  <b>Anthropic (Claude):</b> buka <code>console.anthropic.com</code> → daftar/login → Settings → API Keys → Create Key → tempel ke sini. Model mis. <code>claude-sonnet-4-5</code>.<br>
+  <b>OpenAI (GPT):</b> buka <code>platform.openai.com</code> → login → API keys → Create new secret key → tempel. Perlu saldo/API billing aktif. Model mis. <code>gpt-4o-mini</code> (murah).<br>
+  <b>Google Gemini (gratis tersedia):</b> buka <code>aistudio.google.com</code> → Get API Key → Create API key → tempel. Model mis. <code>gemini-2.0-flash</code>.<br>
+  <b>DeepSeek:</b> <code>platform.deepseek.com</code> → API keys. <b>OpenRouter:</b> <code>openrouter.ai/keys</code> (satu key untuk banyak model). Untuk keduanya pilih provider yang sesuai lalu tempel key.<br>
+  Bila error 401/403: key salah atau belum ada kuota. Bila error 404: nama model salah untuk provider itu.</div></details></div>` : ''}
   ${sup ? `<div class="card"><h2>Pengaturan aplikasi</h2>
   <label>Nama institusi</label><input id="a_inst" value="${esc(s.instName || 'STIKES YKY Yogyakarta')}"><label>Alamat (kop surat)</label><input id="a_addr" value="${esc(s.address || '')}"><label>Kota (tempat tanda tangan)</label><input id="a_city" value="${esc(s.city || 'Yogyakarta')}">
   <label>URL aplikasi, mis. https://project-id.web.app/ (dipakai QR verifikasi di surat)</label><input id="a_url" value="${esc(s.appUrl || '')}">
-  <label>Format nomor surat ({n} urut, {kode}, {bln} romawi, {thn})</label><input id="a_fmt" value="${esc(s.letterNoFormat || '{n}/{kode}/STIKES-YKY/{bln}/{thn}')}">
+  <label>Mode nomor surat</label><select id="a_nomode"><option value="auto" ${!s.letterNoMode || s.letterNoMode === 'auto' ? 'selected' : ''}>Otomatis (format di bawah)</option><option value="manual" ${s.letterNoMode === 'manual' ? 'selected' : ''}>Manual (admin ketik tiap terbit)</option><option value="both" ${s.letterNoMode === 'both' ? 'selected' : ''}>Bebas: otomatis, boleh ditimpa manual</option></select>
+  <label>Format nomor otomatis ({n} urut per layanan per tahun, {kode}, {bln} romawi, {thn})</label><input id="a_fmt" value="${esc(s.letterNoFormat || '{n}/{kode}/STIKES-YKY/{bln}/{thn}')}">
+  <p class="mu">Aturan: <b>Otomatis</b> = nomor dibuat saat terbit, urut 001, 002… per jenis surat per tahun (mis. <code>001/KET-AKT/STIKES-YKY/I/2026</code>). <b>Manual</b> = admin wajib mengetik nomor di langkah Terbitkan (counter tidak dipakai). <b>Bebas</b> = otomatis, tetapi kolom nomor dapat diisi untuk menimpa (mis. nomor agenda TU).</p>
   <label>Batas waktu pemohon menjawab konfirmasi (hari)</label><input id="a_cd" type="number" min="1" value="${s.confirmDays || 3}">
   <div><span class="mu">Prioritas otomatis untuk status:</span> ${STATUS_ALL.map((x) => `<label class="chk"><input type="checkbox" class="a_ap" value="${x}" ${(s.autoPriority || ['Ketua STIKES', 'Waket 1', 'Waket 2']).includes(x) ? 'checked' : ''}>${x}</label>`).join('')}</div>
   <label>Penyimpanan salinan surat</label><select id="a_arc"><option value="off" ${!s.archive && s.archivePdf !== 'on' || s.archive === 'off' ? 'selected' : ''}>Ringkas: data + hash saja (PDF/HTML dibuat ulang saat dibuka)</option><option value="html" ${s.archive === 'html' ? 'selected' : ''}>Ringkas + salinan HTML tersimpan (≤150 KB, terbaca tanpa PDF viewer)</option><option value="pdf" ${s.archive === 'pdf' || (!s.archive && s.archivePdf === 'on') ? 'selected' : ''}>Arsip: HTML + PDF terkompresi (boros; hanya untuk surat tanpa template)</option></select>
   <label>URL webhook email (Google Apps Script, opsional)</label><input id="a_mail" value="${esc(s.mailWebhook || '')}" placeholder="https://script.google.com/macros/s/.../exec">
-  <label>Model AI</label><input id="a_ai" value="${esc(s.aiModel || 'claude-sonnet-5-5')}">
+  <label>Penyedia AI bawaan</label><select id="a_aip">${Object.entries(AI_PROVIDERS).map(([v, o]) => `<option value="${v}" ${(s.aiProvider || 'anthropic') === v ? 'selected' : ''}>${o.label}</option>`).join('')}</select>
+  <label>Model AI bawaan (boleh dikosongkan = model pertama provider)</label><input id="a_ai" value="${esc(s.aiModel || '')}" placeholder="mis. gpt-4o-mini / gemini-2.0-flash / claude-sonnet-4-5">
+  <label>Base URL OpenAI-compatible bawaan (opsional)</label><input id="a_aibase" value="${esc(s.aiBaseUrl || '')}" placeholder="kosongkan bila tidak perlu">
   <button class="btn" onclick="A.saveSet()">Simpan pengaturan</button></div>
+  <div class="card"><h2>🖼 Kop surat (bisa banyak)</h2><p class="mu">Setiap kop = gambar logo + teks nama & alamat. Saat menerbitkan, admin/pejabat <b>memilih salah satu</b> (mis. Kop Institusi, Kop Prodi, Kop Unit). Hanya dipakai surat tata-letak standar — template PDF memakai kop dari template.</p>
+  ${(s.kopList || []).map((e) => `<div class="item row"><div>${e.thumb ? `<img src="${e.thumb}" style="height:44px;background:#fff;border:1px solid var(--bd);border-radius:8px">` : '<span class="tag">tanpa gambar</span>'}</div><div style="flex:1"><b>${esc(e.name || 'Kop')}</b>${e.id === s.kopDefaultId ? ' <span class="tag ok">bawaan</span>' : ''}<div class="mu">${esc(e.instName || '')}${e.address ? '<br>' + esc(e.address) : ''}</div></div><div class="row">${e.id === s.kopDefaultId ? '' : `<button class="btn g s" onclick="A.kopDef('${e.id}')">Bawaan</button>`}<button class="btn r s" onclick="A.kopDel('${e.id}')">Hapus</button></div></div>`).join('') || '<p class="mu">Belum ada kop di daftar (dipakai teks & logo lama/bawaan).</p>'}
+  <div class="fg"><div><label>Nama kop baru</label><input id="kop_name" placeholder="mis. Kop Prodi K3"></div><div><label>Nama instansi pada kop</label><input id="kop_inst" placeholder="mis. STIKES YKY Yogyakarta"></div></div>
+  <label>Alamat pada kop</label><input id="kop_addr" placeholder="mis. Jl. ...">
+  <div class="row"><label class="btn g s">＋ Tambah kop (pilih gambar logo, opsional)<input type="file" accept="image/*" hidden onchange="A.kopAdd(this)"></label><button class="btn g s" onclick="A.kopAdd(null)">＋ Tambah tanpa gambar</button></div>
+  ${s.logoPng && !(s.kopList || []).length ? '<div class="row" style="margin-top:8px"><button class="btn s" onclick="A.kopImportLegacy()">Pindahkan logo lama menjadi Kop Institusi</button></div>' : ''}</div>
+  <div class="card"><h2>🔴 Cap / stempel (bisa banyak)</h2><p class="mu">Saat menerbitkan, admin/pejabat <b>memilih salah satu cap</b> atau Tanpa cap (mis. Cap Institusi, Cap Prodi, Cap Unit). Cap menimpa tanda tangan. Untuk template PDF, tandai titik <b>Cap / stempel</b> di "Atur penempatan"; bila tidak ditandai, cap otomatis menimpa TTD pertama. Pakai <b>PNG transparan</b>.</p>
+  ${(s.stampList || []).map((e) => `<div class="item row"><div>${e.thumb ? `<img src="${e.thumb}" style="height:44px;background:#fff;border:1px solid var(--bd);border-radius:8px">` : ''}</div><div style="flex:1"><b>${esc(e.name || 'Cap')}</b>${e.id === s.stampDefaultId ? ' <span class="tag ok">bawaan</span>' : ''}</div><div class="row">${e.id === s.stampDefaultId ? '' : `<button class="btn g s" onclick="A.capDef('${e.id}')">Bawaan</button>`}<button class="btn r s" onclick="A.capDel('${e.id}')">Hapus</button></div></div>`).join('') || '<p class="mu">Belum ada cap di daftar.</p>'}
+  <div class="fg"><div><label>Nama cap baru</label><input id="cap_name" placeholder="mis. Cap Prodi"></div><div style="align-self:end;margin-bottom:12px"><label class="btn g s">Pilih gambar cap<input type="file" accept="image/*" hidden onchange="A.capAdd(this)"></label></div></div>
+  ${s.stampSha && !(s.stampList || []).length ? '<div class="row"><span class="tag ok">Cap lama terpasang</span><button class="btn s" onclick="A.capImportLegacy()">Pindahkan cap lama ke daftar</button><button class="btn r s" onclick="A.stampDel()">Hapus cap lama</button></div>' : ''}
+  <label class="chk"><input type="checkbox" id="a_stampdef" ${s.stampDefault !== false ? 'checked' : ''}> Pilih cap bawaan secara otomatis saat menerbitkan</label></div>
   <div class="card"><h2>Cadangan</h2><p class="mu">Spark tidak punya pencadangan terjadwal. Unduh cadangan JSON secara berkala (membaca seluruh data; cukup sebulan beberapa kali untuk skala kampus). Pemulihan memakai <code>scripts/restore.js</code> (Admin SDK). Terakhir: ${s.lastBackupAt ? fdate(s.lastBackupAt) : 'belum pernah'}.</p><button class="btn s" onclick="A.backup()">💾 Cadangkan sekarang (unduh JSON)</button></div>` : ''}`;
 }
 export function auditV() {
@@ -484,12 +565,14 @@ export function auditV() {
 Object.assign(A, {
   async saveProfile() {
     const v = { name: $('#p_name').value.trim(), phone: $('#p_phone').value.trim(), idNumber: $('#p_id').value.trim(), prodi: $('#p_prodi').value.trim(), requestedStatus: $('#p_req').value, notifEmail: $('#p_mail').checked };
-    if (!v.name) return alert('Nama wajib diisi');
-    if (await run(() => updateDoc(doc(fs, 'users', S.user.uid), v))) { F.saveLookups([{ type: 'prodi', label: v.prodi }]); alert('Profil disimpan'); }
+    if (!v.name) return toast('Nama wajib diisi', 'er');
+    if (await run(() => updateDoc(doc(fs, 'users', S.user.uid), v))) { F.saveLookups([{ type: 'prodi', label: v.prodi }]); toast('Profil disimpan', 'ok'); }
   },
   async saveSet() {
-    const v = { instName: $('#a_inst').value, address: $('#a_addr').value, city: $('#a_city').value, appUrl: $('#a_url').value.trim(), letterNoFormat: $('#a_fmt').value, confirmDays: +$('#a_cd').value || 3, archive: $('#a_arc').value, mailWebhook: $('#a_mail').value.trim(), aiModel: $('#a_ai').value.trim(), autoPriority: [...document.querySelectorAll('.a_ap:checked')].map((x) => x.value) };
-    if (await run(() => setDoc(doc(fs, 'settings', 'app'), v, { merge: true }))) { alert('Pengaturan disimpan'); log('settings.update', 'app', ''); }
+    const urlErr = vUrl($('#a_url').value);
+    if (urlErr) return toast('URL aplikasi: ' + urlErr, 'er');
+    const v = { instName: $('#a_inst').value, address: $('#a_addr').value, city: $('#a_city').value, appUrl: $('#a_url').value.trim(), letterNoMode: $('#a_nomode').value, letterNoFormat: $('#a_fmt').value, confirmDays: +$('#a_cd').value || 3, archive: $('#a_arc').value, mailWebhook: $('#a_mail').value.trim(), aiProvider: $('#a_aip').value, aiModel: $('#a_ai').value.trim(), aiBaseUrl: $('#a_aibase').value.trim(), stampDefault: $('#a_stampdef').checked, autoPriority: [...document.querySelectorAll('.a_ap:checked')].map((x) => x.value) };
+    if (await run(() => setDoc(doc(fs, 'settings', 'app'), v, { merge: true }))) { toast('Pengaturan disimpan', 'ok'); log('settings.update', 'app', ''); }
   },
   async backup() {
     const o = await run(() => F.bk()); if (!o) return;
@@ -497,6 +580,76 @@ Object.assign(A, {
     await run(() => setDoc(doc(fs, 'settings', 'app'), { lastBackupAt: Date.now() }, { merge: true }));
   },
   async lkAdd(t) { const v = $('#lk_' + t).value; await F.saveLookups([{ type: t, label: v }]); $('#lk_' + t).value = ''; },
-  async lkDel(id) { if (confirm('Hapus pilihan ini dari dropdown?')) await run(() => deleteDoc(doc(fs, 'lookups', id))); },
+  async lkDel(id) { if (await confirmDlg({ title: 'Hapus pilihan ini dari dropdown?', ok: 'Hapus', danger: true })) await run(() => deleteDoc(doc(fs, 'lookups', id))); },
+  aiProv(v) { localStorage.setItem('ly-ai-provider', v); hook.render(); },
+  async aiSave() {
+    const p = $('#ai_prov').value, m = $('#ai_model').value.trim(), b = $('#ai_base') ? $('#ai_base').value.trim() : '', k = $('#ai_key').value.trim();
+    localStorage.setItem('ly-ai-provider', p); localStorage.setItem('ly-ai-model', m); localStorage.setItem('ly-ai-base', b);
+    if (k) { localStorage.setItem('ly-ai-key-' + p, k); localStorage.removeItem('ly-ai-key'); }
+    toast('AI tersimpan di browser ini (' + p + ')', 'ok'); hook.render();
+  },
+  aiClear() { const p = ($('#ai_prov') || {}).value || aiCfg().provider; localStorage.removeItem('ly-ai-key-' + p); localStorage.removeItem('ly-ai-key'); toast('Key dihapus dari browser ini', 'ok'); hook.render(); },
+  stampUp(inp) {
+    const f = inp.files[0]; if (!f) return;
+    if (f.size > 600000) return toast('Maks ±600 KB. Kompres gambar cap dulu.', 'er');
+    const fr = new FileReader();
+    fr.onload = () => { const im = new Image(); im.onload = async () => { const k = Math.min(1, 320 / im.width, 320 / im.height), c = document.createElement('canvas'); c.width = Math.max(1, Math.round(im.width * k)); c.height = Math.max(1, Math.round(im.height * k)); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); await run(async () => { const sha = await putSig(c.toDataURL('image/png'), 'CAP'); await setDoc(doc(fs, 'settings', 'app'), { stampSha: sha }, { merge: true }); }); log('settings.stamp', 'app', 'cap diunggah'); }; im.onerror = () => toast('Gambar tidak valid', 'er'); im.src = fr.result; };
+    fr.readAsDataURL(f);
+  },
+  async stampDel() { if (await confirmDlg({ title: 'Hapus cap?', msg: 'Surat lama yang sudah memakai cap tidak berubah.', ok: 'Hapus', danger: true }) && await run(() => setDoc(doc(fs, 'settings', 'app'), { stampSha: null }, { merge: true }))) log('settings.stamp', 'app', 'cap dihapus'); },
+  logoUp(inp) {
+    const f = inp.files[0]; if (!f) return;
+    if (f.size > 900000) return toast('Maks ±900 KB. Kompres logo dulu.', 'er');
+    const fr = new FileReader();
+    fr.onload = () => { const im = new Image(); im.onload = async () => { const k = Math.min(1, 320 / im.width, 320 / im.height), c = document.createElement('canvas'); c.width = Math.max(1, Math.round(im.width * k)); c.height = Math.max(1, Math.round(im.height * k)); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); const url = c.toDataURL('image/png'); if (url.length > 400000) return toast('Hasil masih > ±300 KB, kecilkan lagi.', 'er'); await run(() => setDoc(doc(fs, 'settings', 'app'), { logoPng: url }, { merge: true })); clearLogoCache(); log('settings.logo', 'app', 'logo diunggah'); }; im.onerror = () => toast('Gambar tidak valid', 'er'); im.src = fr.result; };
+    fr.readAsDataURL(f);
+  },
+  async logoDel() { if (await confirmDlg({ title: 'Hapus logo dari Pengaturan?', msg: 'Berkas logo.png.png tetap dipakai bila ada.', ok: 'Hapus', danger: true }) && await run(() => setDoc(doc(fs, 'settings', 'app'), { logoPng: null }, { merge: true }))) clearLogoCache(); },
+  /* ---------- Daftar kop & cap dinamis ---------- */
+  async kopAdd(inp) {
+    const f = inp && inp.files[0];
+    const name = ($('#kop_name') || {}).value?.trim() || 'Kop ' + ((S.set.kopList || []).length + 1);
+    const instName = ($('#kop_inst') || {}).value?.trim() || '', address = ($('#kop_addr') || {}).value?.trim() || '';
+    let sha = null, thumb = '';
+    if (f) {
+      if (f.size > 900000) return toast('Maks ±900 KB. Kompres gambar dulu.', 'er');
+      const url = await readImgFile(f, 320).catch(() => null);
+      if (!url) return toast('Gambar tidak valid', 'er');
+      if (url.length > 115000) return toast('Gambar kebesaran (maks ±85 KB setelah dikecilkan). Pakai gambar lebih sederhana.', 'er');
+      thumb = await downscale(url, 96).catch(() => '');
+      sha = await run(() => putSig(url, 'KOP: ' + name)); if (!sha) return;
+    } else if (!instName && !address) return toast('Isi gambar atau teks kop.', 'er');
+    const id = 'k' + Date.now().toString(36), list = [...(S.set.kopList || []), { id, sha, thumb, name, instName, address }];
+    if (await run(() => setDoc(doc(fs, 'settings', 'app'), { kopList: list, ...((S.set.kopList || []).length ? {} : { kopDefaultId: id }) }, { merge: true }))) { toast('Kop "' + name + '" ditambahkan', 'ok'); log('settings.kop.add', 'app', name); }
+  },
+  async kopDel(id) { const l = (S.set.kopList || []).filter((e) => e.id !== id); if (await confirmDlg({ title: 'Hapus kop ini?', msg: 'Surat lama yang sudah memakai kop ini tidak berubah.', ok: 'Hapus', danger: true }) && await run(() => setDoc(doc(fs, 'settings', 'app'), { kopList: l, ...(S.set.kopDefaultId === id ? { kopDefaultId: (l[0] && l[0].id) || '' } : {}) }, { merge: true }))) log('settings.kop.del', 'app', id); },
+  async kopDef(id) { if (await run(() => setDoc(doc(fs, 'settings', 'app'), { kopDefaultId: id }, { merge: true }))) toast('Kop bawaan diperbarui', 'ok'); },
+  async kopImportLegacy() {
+    const url = S.set.logoPng; if (!url) return;
+    const small = await downscale(url, 240).catch(() => null);
+    if (!small || small.length > 115000) return toast('Logo lama kebesaran untuk daftar kop. Unggah ulang gambar yang lebih kecil sebagai kop baru.', 'er');
+    const sha = await run(() => putSig(small, 'KOP: Kop Institusi')); if (!sha) return;
+    const thumb = await downscale(url, 96).catch(() => ''), id = 'k' + Date.now().toString(36);
+    if (await run(() => setDoc(doc(fs, 'settings', 'app'), { kopList: [...(S.set.kopList || []), { id, sha, thumb, name: 'Kop Institusi', instName: S.set.instName || '', address: S.set.address || '' }], kopDefaultId: id, logoPng: null }, { merge: true }))) { clearLogoCache(); toast('Logo lama menjadi Kop Institusi', 'ok'); log('settings.kop.import', 'app', 'legacy'); }
+  },
+  async capAdd(inp) {
+    const f = inp && inp.files[0]; if (!f) return;
+    const name = ($('#cap_name') || {}).value?.trim() || 'Cap ' + ((S.set.stampList || []).length + 1);
+    if (f.size > 600000) return toast('Maks ±600 KB. Kompres gambar cap dulu.', 'er');
+    const url = await readImgFile(f, 320).catch(() => null);
+    if (!url) return toast('Gambar tidak valid', 'er');
+    if (url.length > 115000) return toast('Gambar kebesaran (maks ±85 KB setelah dikecilkan). Pakai gambar lebih sederhana.', 'er');
+    const thumb = await downscale(url, 96).catch(() => '');
+    const sha = await run(() => putSig(url, 'CAP: ' + name)); if (!sha) return;
+    const id = 'c' + Date.now().toString(36), list = [...(S.set.stampList || []), { id, sha, thumb, name }];
+    if (await run(() => setDoc(doc(fs, 'settings', 'app'), { stampList: list, ...((S.set.stampList || []).length ? {} : { stampDefaultId: id }) }, { merge: true }))) { toast('Cap "' + name + '" ditambahkan', 'ok'); log('settings.cap.add', 'app', name); }
+  },
+  async capDel(id) { const l = (S.set.stampList || []).filter((e) => e.id !== id); if (await confirmDlg({ title: 'Hapus cap ini?', msg: 'Surat lama yang sudah memakai cap ini tidak berubah.', ok: 'Hapus', danger: true }) && await run(() => setDoc(doc(fs, 'settings', 'app'), { stampList: l, ...(S.set.stampDefaultId === id ? { stampDefaultId: (l[0] && l[0].id) || '' } : {}) }, { merge: true }))) log('settings.cap.del', 'app', id); },
+  async capDef(id) { if (await run(() => setDoc(doc(fs, 'settings', 'app'), { stampDefaultId: id }, { merge: true }))) toast('Cap bawaan diperbarui', 'ok'); },
+  async capImportLegacy() {
+    const sha = S.set.stampSha; if (!sha) return;
+    const id = 'c' + Date.now().toString(36);
+    if (await run(() => setDoc(doc(fs, 'settings', 'app'), { stampList: [...(S.set.stampList || []), { id, sha, thumb: '', name: 'Cap Institusi' }], stampDefaultId: id, stampSha: null }, { merge: true }))) { toast('Cap lama masuk daftar', 'ok'); log('settings.cap.import', 'app', 'legacy'); }
+  },
   async loadAudit() { const q = await getDocs(query(collection(fs, 'audit'), orderBy('at', 'desc'), limit(200))); S.audit = q.docs.map((d) => d.data()); hook.render(); },
 });

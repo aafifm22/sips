@@ -1,78 +1,114 @@
 [
- {
-  "v": "2.3.1",
-  "date": "2026-10-10",
-  "notes": [
-   "Editor Layanan dirapikan: tiap layanan lipat/buka, bagian berlabel, kolom penuh di ponsel; penandatangan sebagai blok berlabel.",
-   "Halaman Pengguna berbentuk kartu (mudah di ponsel) dengan filter 'Perlu verifikasi', pencarian, dan tombol cepat 'Setujui' status yang diajukan.",
-   "Filter dashboard dilipat agar angka ringkasan terlihat lebih dulu."
-  ]
- },
- {
-  "v": "2.3.0",
-  "date": "2026-10-10",
-  "notes": [
-   "Navigasi disederhanakan: 3-4 menu utama per peran (bar bawah di ponsel, tab di desktop) + 'Lainnya'; lonceng notifikasi & menu akun di header.",
-   "Beranda pemohon: tombol besar 'Ajukan surat baru', 'Perlu tindakan Anda', 'Sedang berjalan', pintasan layanan. Ajukan surat berlangkah (pilih jenis → isi data → layar sukses dengan kode & tombol salin).",
-   "Beranda admin 'Kerjakan surat': filter (Perlu diproses / Disiapkan / Menunggu pejabat / Menunggu pemohon / Lewat batas / Selesai) dan kartu dengan satu tombol utama.",
-   "Penerbitan surat berlangkah (Periksa → Isi surat → Tanda tangan → Terbitkan) dengan tombol utama tetap di bawah; fitur sekunder disimpan di 'Lainnya'.",
-   "Lembar modal layar penuh di ponsel, tombol & kolom lebih besar (mudah disentuh), kartu permintaan ringkas, istilah teknis disembunyikan dari tampilan utama."
-  ]
- },
- {
-  "v": "2.2.1",
-  "date": "2026-10-10",
-  "notes": [
-   "Perbaikan: pratinjau/penerbitan PDF gagal pada QR ('toDataURL'). QR kini digambar vektor oleh pembuat QR bawaan (vendor/), sehingga juga identik di semua browser. pdf-lib dikunci lokal (vendor/) karena hash PDF bergantung versinya.",
-   "Perbaikan: 'Permintaan Saya' tidak muncul bila indeks Firestore belum siap; kueri kini tanpa indeks gabungan, galat dimuat tampil sebagai banner, dan kegagalan posisi antrean tidak lagi menggagalkan pelacakan.",
-   "Istilah 'Klien' tidak lagi tampil di antarmuka (hanya status pengguna: Mahasiswa/Dosen/dst, Admin, Admin Super).",
-   "Program studi/unit dan Instansi tujuan berupa dropdown + 'Tulis sendiri'; nilai baru tersimpan dan muncul di dropdown berikutnya; admin dapat merapikan di Pengaturan > Data master.",
-   "Pengguna: aturan dan tampilan diselaraskan (Admin tidak dapat mengubah akunnya sendiri/Admin Super; Admin Super boleh mengubah status & verifikasi dirinya); pesan penolakan lebih jelas."
-  ]
- },
- {
-  "v": "2.2.0",
-  "date": "2026-10-10",
-  "notes": [
-   "Alur penerbitan dinamis per layanan: 'Admin cek ulang lalu terbitkan' atau 'Terbit otomatis' (jeda menit, hanya pemohon terverifikasi, tahan per permintaan).",
-   "Checklist penandatangan dinamis: siapa saja, wajib/tidak, urutan (paralel/berjenjang), mode Manual (pejabat login & menandatangani digital) atau Otomatis (delegasi tanda tangan gambar yang diaktifkan pejabat).",
-   "Setiap tanda tangan manual terikat hash isi surat; penandatangan terakhir menerbitkan. Penandatangan tampil di surat PDF/HTML, riwayat, dan halaman verifikasi.",
-   "Penerbit otomatis (sesi admin yang terbuka) menggantikan server pada paket Spark."
-  ]
- },
- {
-  "v": "2.1.0",
-  "date": "2026-10-10",
-  "notes": [
-   "Ekspor & Cadangan massal: PDF asli (dibuat ulang, hash dicocokkan dengan rantai) ke ZIP atau langsung ke Google Drive admin, per Tahun/Bulan/Layanan, plus indeks.csv dan bukti rantai; mode 'baru sejak ekspor terakhir' dengan progres tersimpan.",
-   "Cadangan data JSON ke Google Drive (OAuth lewat Firebase Auth, scope drive.file).",
-   "Template: konversi Word/ODT -> PDF lewat Google Drive; ukuran template hingga ±2,4 MB (dipecah); template & versinya tidak dapat diubah/dihapus.",
-   "Salinan HTML mandiri tiap surat (dibuat ulang atau disimpan ≤150 KB) dan tombol 'Lihat HTML'.",
-   "Pengaturan penyimpanan: Ringkas / Ringkas + HTML / Arsip."
-  ]
- },
- {
-  "v": "2.0.0",
-  "date": "2026-10-10",
-  "notes": [
-   "Paket Firebase Spark (gratis): tanpa Cloud Functions & Storage; aturan bisnis dipindah ke aturan Firestore + logika di browser.",
-   "Persetujuan & tanda tangan oleh pejabat yang login sendiri; kunci ECDSA P-256 per perangkat, kunci publik terdaftar.",
-   "Setiap surat dicatat ke rantai hash SHA-256 (append-only) beserta tanda tangan digital; halaman verifikasi (kode/QR/unggah PDF) dan verifikator offline.",
-   "Penyimpanan ringkas: simpan data + hash, PDF dibuat ulang deterministik saat diunduh (opsi arsip PDF terkompresi).",
-   "Template PDF disimpan di Firestore dengan riwayat versi; tema warna-warni, pilihan aksen, mode terang/gelap.",
-   "Daftar 'perlu perhatian' menggantikan pengingat terjadwal; cadangan manual + skrip pemulihan."
-  ]
- },
- {
-  "v": "1.0.0",
-  "date": "2026-10-09",
-  "notes": [
-   "Rilis awal versi Firebase: 4 role (Admin Super, Admin, Pemohon, Tamu), login Google/email, antrean & prioritas.",
-   "Durasi per tahap (Diajukan, Diproses, Menunggu Konfirmasi, Selesai/Dibatalkan); timer berhenti saat selesai/dibatalkan.",
-   "Aturan pembatalan: pemohon kapan saja; admin hanya setelah pemohon tidak menjawab konfirmasi sampai batas waktu.",
-   "Template PDF (AcroForm / penempatan koordinat) dengan riwayat versi template dan rollback.",
-   "Tanda tangan: gambar langsung, unggah, atau pakai tersimpan; nama & jabatan dapat diubah; QR verifikasi keaslian.",
-   "Riwayat versi surat (revisi), audit log, cadangan manual & mingguan, pemulihan, pengaturan pengguna & aplikasi, panduan."
-  ]
- }
+  {
+    "v": "2.5.1",
+    "date": "2026-10-11",
+    "notes": [
+      "Logo proporsional: gambar/logo diskalakan dengan aspect ratio agar tidak terpotong—PDF gunakan skala proporsional dari sudut kiri atas, HTML gunakan width:48px;height:auto + margin-top:calc(50% - 24px) untuk vertikal-center."
+    ]
+  },
+  {
+    "v": "2.5.0",
+    "date": "2026-10-11",
+    "notes": [
+      "Kop dinamis: daftar kop (logo + nama + alamat) di Pengaturan, pilih salah satu saat menerbitkan; membeku per surat.",
+      "Cap dinamis: daftar cap di Pengaturan, pilih salah satu atau Tanpa cap saat menerbitkan; tombol pindah cap/logo lama ke daftar."
+    ]
+  },
+  {
+    "v": "2.4.1",
+    "date": "2026-10-11",
+    "notes": [
+      "Adopsi framework: toast + loading global (ganti alert), dialog konfirmasi, validator form, cegah kirim ganda, empty/skeleton.",
+      "Env lokal via window.__ENV (env.example.js → env.local.js, gitignored); .gitignore mencakup service-account & artefak cadanga.",
+      "PWA-lite: manifest, theme-color mengikuti aksen; uji asap node scripts/smoke.mjs; dokumen adopsi di docs/FRAMEWORK.md."
+    ]
+  },
+  {
+    "v": "2.4.0",
+    "date": "2026-10-11",
+    "notes": [
+      "Nomor surat: mode Otomatis / Manual / Bebas di Pengaturan; format {n}/{kode}/{bln}/{thn} dengan urutan per layanan per tahun, kolom nomor manual di langkah Terbitkan.",
+      "Opsi cap/stempel dengan atau tanpa cap (menimpa tanda tangan); unggah di Pengaturan, titik _cap di Atur penempatan template.",
+      "Feedback wajib via pop-up: dokumen terkunci sampai dinilai; menu Feedback ada rata-rata dan unduh semua sebagai CSV.",
+      "Logo STIKES di kiri kop tiap surat (berkas public/logo.png.png atau unggah di Pengaturan).",
+      "Tombol Reset semua layanan (khusus Admin Super, konfirmasi + ketik RESET).",
+      "AI multi-provider: Anthropic, OpenAI, Gemini, DeepSeek, OpenRouter + panduan mendapatkan API key di Pengaturan."
+    ]
+  },
+  {
+    "v": "2.3.1",
+    "date": "2026-10-10",
+    "notes": [
+      "Editor Layanan dirapikan: tiap layanan lipat/buka, bagian berlabel, kolom penuh di ponsel; penandatangan sebagai blok berlabel.",
+      "Halaman pengguna berbentuk kartu (mudah di ponsel) dengan filter 'Perlu verifikasi', pencarian, dan tombol cepat 'Setujui' status yang diajukan.",
+      "Filter dashboard dilipat agar angka ringkasan terlihat lebih dulu."
+    ]
+  },
+  {
+    "v": "2.3.0",
+    "date": "2026-10-10",
+    "notes": [
+      "Navigasi disederhanakan: 3-4 menu utama per peran (bar bawah di ponsel, tab di desktop) + 'Lainnya'; lonceng notifikasi & menu akun di header.",
+      "Beranda pemohon: tombol besar 'Ajukan surat baru', 'Perlu tindakan Anda', 'Sedang berjalan', pintasan layanan. Ajukan surat berlangkah (pilih jenis → isi data → layar sukses dengan kode & tombol salin).",
+      "Beranda admin 'Kerjakan surat': filter (Perlu diproses / Disiapkan / Menunggu pejabat / Menunggu pemohon / Lewat batas / Selesai) dan kartu dengan satu tombol utama.",
+      "Penerbitan surat berlangkah (Periksa → Isi surat → Tanda tangan → Terbitkan) dengan tombol utama tetap di bawah; fitur sekunder disimpan di 'Lainnya'.",
+      "Lembar modal layar penuh di ponsel, tombol & kolom lebih besar (mudah disentuh), kartu permintaan ringkas, istilah teknis disembunyikan dari tampilan utama."
+    ]
+  },
+  {
+    "v": "2.2.1",
+    "date": "2026-10-10",
+    "notes": [
+      "Perbaikan: pratinjau/penerbitan PDF gagal pada QR ('toDataURL'). QR kini digambar vektor oleh pembuat QR bawaan (vendor/), sehingga juga identik di semua browser. pdf-lib dikunci lokal (vendor/) karena hash PDF bergantung versinya.",
+      "Perbaikan: 'Permintaan Saya' tidak muncul bila indeks Firestore belum siap; kueri kini tanpa indeks gabungan, galat dimuat tampil sebagai banner, dan kegagalan posisi antrean tidak lagi menggagalkan pelacakan.",
+      "Istilah 'Klien' tidak lagi tampil di antarmuka (hanya status pengguna: Mahasiswa/Dosen/dst, Admin, Admin Super).",
+      "Program studi/unit dan Instansi tujuan berupa dropdown + 'Tulis sendiri'; nilai baru tersimpan dan muncul di dropdown berikutnya; admin dapat merapikan di Pengaturan > Data master.",
+      "Pengguna: aturan dan tampilan diselaralkan (Admin tidak dapat mengubah akunnya sendiri/Admin Super; Admin Super boleh mengubah status & verifikasi dirinya); pesan penolakan lebih jelas."
+    ]
+  },
+  {
+    "v": "2.2.0",
+    "date": "2026-10-10",
+    "notes": [
+      "Alur penerbitan dinamis per layanan: 'Admin cek ulang lalu terbitkan' atau 'Terbit otomatis' (jeda menit, hanya pemohon terverifikasi, tahan per permintaan).",
+      "Checklist penandatangan dinamis: siapa saja, wajib/tidak, urutan (paralel/berjenjang), mode Manual (pejabat login & menandatangani digital) atau Otomatis (delegasi tanda tangan gambar yang diaktifkan pejabat).",
+      "Setiap tanda tangan manual terikat hash isi surat; penandatangan terakhir menerbitkan surat. Penandatangan tampil di surat PDF/HTML, riwayat, dan halaman verifikasi.",
+      "Penerbit otomatis (sesi admin yang terbuka) menggantikan server pada paket Spark."
+    ]
+  },
+  {
+    "v": "2.1.0",
+    "date": "2026-10-10",
+    "notes": [
+      "Ekspor & Cadangan massal: PDF asli (dibuat ulang, hash dicocokkan dengan rantai) ke ZIP atau langsung ke Google Drive admin, per Tahun/Bulan/Layanan, plus indeks.csv dan bukti rantai; mode 'baru sejak ekspor terakhir' dengan progres tersimpan.",
+      "Cadangan data JSON ke Google Drive (OAuth lewat Firebase Auth, scope drive.file).",
+      "Template: konversi Word/ODT -> PDF lewat Google Drive; ukuran template hingga ±2,4 MB (dipecah); template & versinya tidak dapat diubah/dihapus.",
+      "Salinan HTML mandiri tiap surat (dibuat ulang atau disimpan ≤150 KB) dan tombol 'Lihat HTML'.",
+      "Pengaturan penyimpanan: Ringkas / Ringkas + HTML / Arsip."
+    ]
+  },
+  {
+    "v": "2.0.0",
+    "date": "2026-10-10",
+    "notes": [
+      "Paket Firebase Spark (gratis): tanpa Cloud Functions & Storage; aturan bisnis dipindah ke aturan Firestore + logika di browser.",
+      "Persetujuan & tanda tangan oleh pejabat yang login sendiri; kunci ECDSA P-256 per perangkat, kunci publik terdaftar.",
+      "Setiap surat dicatat ke rantai hash SHA-256 (append-only) beserta tanda tangan digital; halaman verifikasi (kode/QR/unggah PDF) dan verifikator offline.",
+      "Penyimpanan ringkas: simpan data + hash, PDF dibuat ulang deterministik saat diunduh (opsi arsip PDF terkompresi).",
+      "Template PDF disimpan di Firestore dengan riwayat versi; tema warna-warni, pilihan aksen, mode terang/gelap.",
+      "Daftar 'perlu perhatian' menggantikan pengingat terjadwal; cadangan manual + skrip pemulihan."
+    ]
+  },
+  {
+    "v": "1.0.0",
+    "date": "2026-10-09",
+    "notes": [
+      "Rilis awal versi Firebase: 4 role (Admin Super, Admin, Pemohon, Tamu), login Google/email, antrean & prioritas.",
+      "Durasi per tahap (Diajukan, Diproses, Menunggu Konfirmasi, Selesai/Dibatalkan); timer berhenti saat selesai/dibatalkan.",
+      "Aturan pembatalan: pemohon kapan saja; admin hanya setelah pemohon tidak menjawab konfirmasi sampai batas waktu.",
+      "Template PDF (AcroForm / penempatan koordinat) dengan riwayat versi dan rollback.",
+      "Tanda tangan: gambar langsung, unggah, atau pakai tersimpan; nama & jabatan dapat diubah; QR verifikasi keaslian.",
+      "Riwayat versi surat (revisi), audit log, cadangan manual & mingguan, pemulihan, pengaturan pengguna & aplikasi, panduan."
+    ]
+  }
 ]

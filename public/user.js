@@ -1,8 +1,10 @@
-import { S, F, fs, $, esc, fd, fdate, run, stages, qinfo, modal, csv, saveFile, saveB64, tagOf, agg, svc, isAdm, OPEN, FL, DAY, hook, flowOf } from './core.js';
+import { S, F, fs, $, esc, fd, fdate, run, stages, qinfo, modal, csv, saveFile, saveB64, tagOf, agg, svc, isAdm, OPEN, FL, DAY, hook, flowOf, toast, vEmail, vPhone } from './core.js';
 import { doc, updateDoc } from 'firebase/firestore';
 
 const A = (window.A = window.A || {});
 let sel = '';
+/** Feedback wajib: pemohon (bukan admin) yang suratnya Selesai tetapi belum menilai tidak boleh lihat/unduh dokumen. */
+export const needFb = (r) => !!r && r.status === 'Selesai' && !r.feedback && !isAdm();
 const by = (s) => (String(s).startsWith('admin') ? 'Admin' : String(s).startsWith('user') ? 'Pemohon' : s === 'guest' ? 'Tamu' : 'Sistem');
 const estTxt = (sid) => {
   const t = S.stats[sid];
@@ -48,7 +50,7 @@ export function reqCard(r, adm) {
   let cta;
   if (adm) cta = `<button class="btn ${['Diajukan', 'Diproses'].includes(r.status) ? '' : 'g'}" onclick="A.proc('${r.id}')">${r.status === 'Diajukan' ? '▶ Mulai proses' : r.status === 'Diproses' ? '✎ Siapkan & terbitkan' : 'Buka'}</button>`;
   else if (r.status === 'Menunggu Konfirmasi') cta = `<button class="btn" onclick="A.open('${r.id}')">Jawab sekarang</button>`;
-  else if (r.status === 'Selesai') cta = `<button class="btn" onclick="A.dlL('${r.id}')">⬇ Unduh surat</button><button class="btn g" onclick="A.open('${r.id}')">${r.feedback ? 'Detail' : '⭐ Detail & nilai'}</button>`;
+  else if (r.status === 'Selesai') cta = needFb(r) ? `<button class="btn" onclick="A.fbM('${r.id}')">⭐ Isi nilai untuk buka dokumen</button>` : `<button class="btn" onclick="A.dlL('${r.id}')">⬇ Unduh surat</button><button class="btn g" onclick="A.open('${r.id}')">${r.feedback ? 'Detail' : '⭐ Detail & nilai'}</button>`;
   else cta = `<button class="btn g" onclick="A.open('${r.id}')">Detail</button>`;
   return `<div class="rc"><div class="rc-h"><div><b>${esc(r.sname)}</b><div class="mu">${r.code} · diajukan ${fdate(r.createdAt)}</div></div><div>${tagOf(r, true)}</div></div>${stepper(r)}${signChecklist(r)}<div class="rc-m">${meta.join('<br>')}</div><div class="rc-a">${cta}</div></div>`;
 }
@@ -148,19 +150,29 @@ Object.assign(A, {
   ajukan(id) { sel = id; S.sent = null; S.view = 'ajukan'; hook.render(); scrollTo(0, 0); },
   svcFilter(q) { const k = q.toLowerCase(); document.querySelectorAll('#tl .tile').forEach((e) => { e.style.display = e.textContent.toLowerCase().includes(k) ? '' : 'none'; }); },
   mf(k) { S.mf = k; hook.render(); },
-  copy(x) { (navigator.clipboard ? navigator.clipboard.writeText(x) : Promise.reject()).then(() => alert('Kode disalin'), () => prompt('Salin kode:', x)); },
+  copy(x) { (navigator.clipboard ? navigator.clipboard.writeText(x) : Promise.reject()).then(() => toast('Kode disalin', 'ok'), () => prompt('Salin kode:', x)); },
   sentDone(v) { S.sent = null; sel = ''; A.nav(v); },
   df(k, v) { if (k === 'reset') S.DF = { sid: '', from: '', to: '' }; else S.DF[k] = v; hook.render(); },
   async submit() {
+    if (S._submitting) return; // cegah kirim ganda (klik dua kali)
     const s = svc(sel), data = {}, g = !S.user;
-    for (const k of s.fields) { data[k] = $('#f_' + k).value.trim(); if (!data[k]) return alert('Lengkapi: ' + (FL[k] || k)); }
+    for (const k of s.fields) { data[k] = $('#f_' + k).value.trim(); if (!data[k]) return toast('Lengkapi: ' + (FL[k] || k), 'er'); }
     const body = { sid: s.id, data, hp: $('#hp').value };
-    if (g) body.requester = { name: data.nama || ($('#g_name') && $('#g_name').value) || '', email: $('#g_email').value, phone: $('#g_phone').value };
-    const r = await run(() => F.submit(body));
-    if (!r) return;
-    F.saveLookups(['prodi', 'tujuan'].filter((k) => data[k]).map((k) => ({ type: k, label: data[k] })));
-    if (g) { A.rememberGuest(r.code, body.requester.email); await A.loadGuest(); }
-    S.sent = { code: r.code, name: s.name, guest: g }; sel = ''; A.refresh(); hook.render(); scrollTo(0, 0);
+    if (g) {
+      const em = $('#g_email').value, ph = $('#g_phone').value, gn = $('#g_name');
+      const nm = (data.nama || (gn && gn.value) || '').trim();
+      const bad = vEmail(em) || vPhone(ph) || (!nm ? 'Nama lengkap wajib diisi' : '');
+      if (bad) return toast(bad, 'er');
+      body.requester = { name: nm, email: em.trim(), phone: ph.trim() };
+    }
+    S._submitting = true;
+    try {
+      const r = await run(() => F.submit(body));
+      if (!r) return;
+      F.saveLookups(['prodi', 'tujuan'].filter((k) => data[k]).map((k) => ({ type: k, label: data[k] })));
+      if (g) { A.rememberGuest(r.code, body.requester.email); await A.loadGuest(); }
+      S.sent = { code: r.code, name: s.name, guest: g }; sel = ''; A.refresh(); hook.render(); scrollTo(0, 0);
+    } finally { S._submitting = false; }
   },
   rememberGuest(code, email) { const l = JSON.parse(localStorage.getItem('gl') || '[]'); if (!l.some((x) => x.code === code)) l.push({ code, email }); localStorage.setItem('gl', JSON.stringify(l.slice(-30))); },
   async loadGuest() {
@@ -172,9 +184,10 @@ Object.assign(A, {
     const r = await run(() => F.track({ code, email }));
     if (r) { A.rememberGuest(r.code, email); await A.loadGuest(); S.view = 'mine'; hook.render(); }
   },
-  async refresh() { try { const o = await F.over(); S.stats = o.stats || {}; S.queue = o.queue || {}; if (!S.user) await A.loadGuest(); hook.render(); } catch (e) { /* abaikan */ } },
+  async refresh() { try { const o = await F.over(); S.stats = o.stats || {}; S.queue = o.queue || {}; if (!S.user) await A.loadGuest(); hook.render(); const pend = mine().filter(needFb); if (pend.length && !S.fbPrompted && (S.view === 'mine' || S.view === 'home')) { S.fbPrompted = true; modal(`<h2>⭐ Nilai surat Anda (${pend.length})</h2><div class="card warn"><b>Isi feedback untuk membuka & mengunduh dokumen.</b><div class="mu">${pend.slice(0, 3).map((r) => esc(r.sname) + ' · ' + r.code).join('<br>')}</div></div><div class="row"><button class="btn" onclick="A.fbM('${pend[0].id}',true)">Isi sekarang</button><button class="btn g" onclick="A.close()">Nanti</button></div>`); } } catch (e) { /* abaikan */ } },
   open(id) {
     const r = mine().find((x) => x.id === id); if (!r) return;
+    if (needFb(r)) { A.fbM(id, true); return; }
     const q = qinfo(r), c = r.confirm, s = stages(r), cancellable = ['Diajukan', 'Diproses', 'Menunggu Konfirmasi', 'Menunggu Persetujuan'].includes(r.status);
     const foot = r.status === 'Selesai' ? `<button class="btn" onclick="A.dlL('${r.id}')">⬇ Unduh surat (PDF)</button>${r.feedback ? '' : `<button class="btn g" onclick="A.fbM('${r.id}')">⭐ Beri nilai</button>`}` : '';
     modal(`<h2>${esc(r.sname)}</h2><div class="mu">${r.code} · diajukan ${fdate(r.createdAt)}</div><div style="margin-top:6px">${tagOf(r)}</div>${stepper(r)}${signChecklist(r)}
@@ -192,21 +205,23 @@ Object.assign(A, {
     const ok = await run(() => F.change({ id, action, }));
     if (ok) { modal(''); await A.refresh(); }
   },
-  async viewHtml(id, version) { const h = await run(() => F.html({ id, version })); if (h) window.open(URL.createObjectURL(new Blob([h], { type: 'text/html' })), '_blank'); },
+  async viewHtml(id, version) { const r = mine().find((x) => x.id === id) || S.rq.find((x) => x.id === id); if (needFb(r)) { S.pendingDl = { id, kind: 'html', version }; A.fbM(id, true); return; } const h = await run(() => F.html({ id, version })); if (h) window.open(URL.createObjectURL(new Blob([h], { type: 'text/html' })), '_blank'); },
   async dlL(id, version) {
+    const r = mine().find((x) => x.id === id) || S.rq.find((x) => x.id === id);
+    if (needFb(r)) { S.pendingDl = { id, kind: 'pdf', version }; A.fbM(id, true); return; }
     const o = await run(() => F.dl({ id, version })); if (!o) return;
-    if (!o.ok) alert('Peringatan: hash PDF yang dibuat ulang tidak sama dengan hash di rantai. Dokumen ini TIDAK dapat diverifikasi; hubungi admin.');
+    if (!o.ok) toast('Peringatan: hash PDF yang dibuat ulang tidak sama dengan hash di rantai. Dokumen ini TIDAK dapat diverifikasi; hubungi admin.', 'er', 8000);
     saveFile(o.name, o.bytes, 'application/pdf');
   },
-  fbM(id) {
+  fbM(id, required) {
     const sel5 = (k) => `<div class="row"><b style="width:110px">${k}</b><select id="fb_${k}" style="width:auto">${[5, 4, 3, 2, 1].map((n) => `<option>${n}</option>`).join('')}</select></div>`;
-    modal(`<h2>Feedback</h2>${['Kerapihan', 'Kecepatan', 'Keramahan'].map(sel5).join('')}<label>Komentar</label><textarea id="fb_note" rows="3"></textarea><button class="btn" onclick="A.fbSend('${id}')">Kirim</button>`);
+    modal(`<h2>⭐ Feedback ${required ? '(wajib diisi)' : ''}</h2>${required ? '<div class="card warn"><b>Isi penilaian dulu untuk membuka & mengunduh dokumen.</b><div class="mu">Dokumen terbuka otomatis setelah Anda menekan Kirim.</div></div>' : '<p class="mu">Penilaian Anda membantu meningkatkan layanan.</p>'}${['Kerapihan', 'Kecepatan', 'Keramahan'].map(sel5).join('')}<label>Komentar</label><textarea id="fb_note" rows="3"></textarea><div class="row"><button class="btn" onclick="A.fbSend('${id}')">Kirim</button>${required ? '' : '<button class="btn g" onclick="A.close()">Nanti</button>'}</div>`);
   },
   async fbSend(id) {
     const aspects = {}; ['Kerapihan', 'Kecepatan', 'Keramahan'].forEach((k) => (aspects[k] = +$('#fb_' + k).value));
     const stars = Math.round(Object.values(aspects).reduce((a, b) => a + b, 0) / 3);
     const r = mine().find((x) => x.id === id);
-    if (await run(() => F.fb({ id, stars, aspects, note: $('#fb_note').value }))) { modal(''); A.refresh(); }
+    if (await run(() => F.fb({ id, stars, aspects, note: $('#fb_note').value }))) { modal(''); await A.refresh(); const p = S.pendingDl; S.pendingDl = null; if (p && p.id === id) { if (p.kind === 'html') A.viewHtml(p.id, p.version); else A.dlL(p.id, p.version); } else if (r) A.open(id); }
   },
   async readAll() { for (const n of S.nt.filter((x) => !x.read)) await updateDoc(doc(fs, 'notifications', n.id), { read: true }); },
   expDet() {

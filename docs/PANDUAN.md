@@ -32,7 +32,23 @@
 3. **Pratinjau PDF** untuk memeriksa tampilan.
 4. Layanan **tanpa persetujuan**: isi nama/jabatan & gambar tanda tangan (gambar langsung, unggah, atau pakai tersimpan) lalu **Terbitkan & catat ke rantai**.
 5. Layanan **dengan persetujuan pejabat**: **Kirim ke pejabat untuk disetujui**. Status menjadi *Menunggu Persetujuan*; pejabat menyetujui atau meminta revisi (kembali ke Diproses).
-6. Penerbitan memberi **nomor surat otomatis**, **QR verifikasi**, hash SHA-256 PDF, dan **tanda tangan digital** dari kunci perangkat penerbit. Revisi menghasilkan versi baru dan entri rantai baru; versi lama ditandai "digantikan".
+6. Penerbitan memberi **nomor surat** (aturan di bawah), **QR verifikasi**, hash SHA-256 PDF, dan **tanda tangan digital** dari kunci perangkat penerbit. Revisi menghasilkan versi baru dan entri rantai baru; versi lama ditandai "digantikan".
+
+## 4a. Aturan nomor surat (otomatis / manual)
+Atur di **Pengaturan (Admin Super) > Mode nomor surat**:
+- **Otomatis** (bawaan): nomor dibuat saat terbit dari format `{n}/{kode}/{bln}/{thn}`. `{n}` = urutan 001, 002… **per jenis layanan per tahun** (counter `counters/{layanan}-{tahun}`), `{kode}` = kode layanan (mis. KET-AKT), `{bln}` = bulan romawi, `{thn}` = tahun. Contoh: `001/KET-AKT/STIKES-YKY/I/2026`. Counter hanya maju bila nomor otomatis dipakai.
+- **Manual**: admin **wajib mengetik** nomor di langkah Terbitkan (mis. mengikuti nomor agenda TU). Counter tidak dipakai. Penerbit otomatis nonaktif dalam mode ini.
+- **Bebas**: nomor otomatis, tetapi kolom nomor dapat diisi untuk **menimpa** (kosongkan = otomatis).
+- Nomor tersimpan permanen di surat + rantai hash; revisi memakai nomor yang sama (versi baru).
+
+## 4b. Cap / stempel (pilih salah satu atau tanpa cap)
+- Kelola daftar cap di **Pengaturan > Cap / stempel**: tambah beberapa cap (mis. Cap Institusi, Cap Prodi, Cap Unit; pakai **PNG transparan** agar tidak menutup tanda tangan dengan kotak putih), tandai satu sebagai bawaan. Cap lama dapat dipindahkan ke daftar dengan satu tombol.
+- Saat menerbitkan (admin maupun pejabat), pilih **salah satu cap** atau **Tanpa cap** pada dropdown. Cap digambar **menimpa (overlap)** gambar tanda tangan.
+- Untuk template PDF: tandai titik **Cap / stempel** sekali di **Layanan > Atur penempatan**. Bila tidak ditandai, cap otomatis menimpa posisi TTD pertama.
+
+## 4c. Kop surat (bisa banyak, pilih per surat)
+- Kelola di **Pengaturan > Kop surat**: tiap kop berisi **gambar logo + teks nama & alamat** (mis. Kop Institusi, Kop Prodi, Kop Unit). Logo lama dapat dipindahkan menjadi Kop Institusi.
+- Saat menerbitkan surat tata-letak standar, pilih salah satu kop pada dropdown (kop bawaan terpilih otomatis). Pilihan membeku di surat — surat lama tidak berubah bila daftar kop diubah. Template PDF memakai kop dari template (dropdown kop disembunyikan).
 
 ## 4b. Alur penerbitan dan checklist penandatangan (dinamis per layanan)
 Di **Layanan > Alur penerbitan & penandatangan** (Admin):
@@ -58,9 +74,24 @@ Di **Layanan > Alur penerbitan & penandatangan** (Admin):
 ## 7. Layanan dan template PDF (Admin)
 - Menu **Layanan**: tambah/hapus layanan, batas hari, mode (Otomatis/Template/AI), siapa yang boleh mengajukan, kolom formulir, perlu TTD, **perlu persetujuan pejabat** (+ daftar pejabat), nama/jabatan bawaan.
 - **Template PDF** (maks ±650 KB; kompres bila perlu): AcroForm (nama field = kunci isian) atau Koordinat (klik posisi di pratinjau). Tampilan hasil identik dengan PDF unggahan. **Riwayat versi** template dapat diaktifkan kembali; surat lama tidak berubah.
+- **Reset semua layanan** (khusus Admin Super, di atas daftar layanan): menghapus **seluruh** layanan sekaligus (permintaan lama tetap tersimpan). Perlu konfirmasi + ketik `RESET`. Pakai bila ingin mulai dari nol.
+- **Logo kop**: kelola di **Pengaturan > Kop surat (bisa banyak)** — tambah Kop Institusi/Prodi/Unit lalu pilih salah satu saat menerbitkan. Gambar **`public/logo.png.png`** diskalakan proporsional (aspect ratio terjaga) agar tidak terpotong diPDF maupun HTML—PDF sejajar tengah blok nama+alamat, HTML vertikal-center via `top:0; margin-top:calc(50% - 24px)`.
+
+## 7b. Feedback wajib & unduhan CSV
+- Setiap surat yang **Selesai** meminta feedback (Kerapihan/Kecepatan/Keramahan + komentar) lewat **pop-up**. Selama belum dinilai, pemohon **tidak dapat melihat detail maupun mengunduh** dokumen (PDF/HTML) — tombol berubah menjadi **"⭐ Isi nilai untuk buka dokumen"**, dan dokumen terbuka otomatis setelah Kirim. Admin/pejabat tidak dibatasi.
+- Admin melihat semua feedback di menu **Feedback** beserta rata-rata ★, dan dapat **mengunduh semuanya sebagai CSV** (kode, layanan, pemohon, bintang, tiap aspek, komentar, waktu).
 
 ## 8. Dashboard, unduhan, cadangan
-- Filter jenis surat & rentang tanggal; on progress, menunggu konfirmasi, selesai, dibatalkan, rata-rata kecepatan layanan/total, tepat waktu, rating. **Rincian/Ringkasan (CSV)** mengikuti filter.
+- Filter jenis surat & rentang tanggal; on progress, menunggu konfirmasi, selesai, dibatalkan, rata-rata kecepatan layanan/total, tepat waktu, rating. **Rincian/Ringkasan (CSV)** mengikuti filter. CSV feedback ada di menu **Feedback**.
+
+## 8a. AI pembantu draf (Anthropic / OpenAI / Gemini / DeepSeek / OpenRouter)
+- Tombol **✨ Draf dengan AI** (layanan bermode AI) memakai penyedia yang dipilih di **Pengaturan > AI** (bawaan dari Admin Super, dapat ditimpa per browser).
+- **Cara mendapatkan key:**
+  - **Anthropic (Claude):** `console.anthropic.com` → Settings → API Keys → Create Key. Model mis. `claude-sonnet-4-5`.
+  - **OpenAI (GPT):** `platform.openai.com` → API keys → Create new secret key (butuh billing). Model mis. `gpt-4o-mini`.
+  - **Google Gemini:** `aistudio.google.com` → Get API Key → Create API key (ada kuota gratis). Model mis. `gemini-2.0-flash`.
+  - **DeepSeek:** `platform.deepseek.com` → API keys. **OpenRouter:** `openrouter.ai/keys`.
+- Key hanya tersimpan di browser (localStorage) dan dikirim langsung ke penyedia AI; hapus bila memakai komputer bersama. Error 401/403 = key/kuota salah; 404 = nama model salah untuk provider itu.
 - Admin: panel **perlu perhatian** (lewat SLA, konfirmasi kedaluwarsa, persetujuan tertunda) menggantikan pengingat terjadwal.
 - **Cadangan** (Admin Super, Pengaturan): unduh JSON secara berkala. Pemulihan via `scripts/restore.js`.
 
